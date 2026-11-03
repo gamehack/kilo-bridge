@@ -53,7 +53,8 @@ export class KiloClient {
     return this.request("POST", `/session/${encodeURIComponent(sessionID)}/prompt_async`, {
       directory,
       body: {
-        model: { providerID: "kilocode", modelID },
+        // `kilo models` lists this as kilo/nvidia/nemotron-3.5-super-vl:free.
+        model: { providerID: "kilo", modelID },
         agent: "code",
         parts: [{ type: "text", text }]
       }

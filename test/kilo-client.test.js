@@ -16,7 +16,7 @@ test("asynchronous prompt pins provider and fixed model", async () => {
     assert.match(request.url, /\/session\/ses_123\/prompt_async$/);
     assert.equal(request.options.headers["x-kilo-directory"], "/tmp/project");
     const body = JSON.parse(request.options.body);
-    assert.deepEqual(body.model, { providerID: "kilocode", modelID: "nvidia/nemotron-3.5-super-vl:free" });
+    assert.deepEqual(body.model, { providerID: "kilo", modelID: "nvidia/nemotron-3.5-super-vl:free" });
     assert.deepEqual(body.parts, [{ type: "text", text: "Fix tests" }]);
   } finally { globalThis.fetch = original; }
 });
