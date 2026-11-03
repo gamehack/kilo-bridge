@@ -18,23 +18,9 @@ export function loadConfig(env = process.env) {
     throw new Error("KILO_SERVER_URL must be an HTTP loopback address");
   }
 
-  let workspaces;
-  try { workspaces = JSON.parse(env.KILO_WORKSPACES_JSON || "{}"); }
-  catch { throw new Error("KILO_WORKSPACES_JSON must contain valid JSON"); }
-  if (!workspaces || Array.isArray(workspaces) || typeof workspaces !== "object" || !Object.keys(workspaces).length) {
-    throw new Error("KILO_WORKSPACES_JSON needs at least one workspace");
-  }
-  const appDir = path.resolve(env.BRIDGE_APP_DIR || process.cwd());
-  for (const [key, directory] of Object.entries(workspaces)) {
-    if (!/^[a-z][a-z0-9_-]{1,63}$/.test(key) || typeof directory !== "string" || !path.isAbsolute(directory)) {
-      throw new Error("Invalid workspace key or absolute path");
-    }
-    const workspace = path.resolve(directory);
-    if (workspace === appDir || appDir.startsWith(workspace + path.sep)) {
-      throw new Error("Workspace must not contain the Bridge application directory");
-    }
-    if (workspace === path.parse(workspace).root) throw new Error("Filesystem root cannot be a workspace");
-    workspaces[key] = workspace;
+  const defaultDirectory = env.KILO_DEFAULT_DIRECTORY || "/home/ubuntu";
+  if (!path.isAbsolute(defaultDirectory) || defaultDirectory.includes("\0")) {
+    throw new Error("KILO_DEFAULT_DIRECTORY must be an absolute path");
   }
   const kiloModel = env.KILO_MODEL || "nvidia/nemotron-3.5-super-vl:free";
   if (kiloModel !== "nvidia/nemotron-3.5-super-vl:free") {
@@ -48,7 +34,7 @@ export function loadConfig(env = process.env) {
     kiloUsername: env.KILO_SERVER_USERNAME || "kilo",
     kiloPassword: env.KILO_SERVER_PASSWORD || "",
     kiloModel,
-    workspaces,
+    defaultDirectory: path.resolve(defaultDirectory),
     bridgeId: env.BRIDGE_ID || `${os.hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`,
     pollIntervalMs: positiveInt(env.BRIDGE_POLL_INTERVAL_MS, 10000, "BRIDGE_POLL_INTERVAL_MS"),
     requestTimeoutMs: positiveInt(env.BRIDGE_REQUEST_TIMEOUT_MS, 30000, "BRIDGE_REQUEST_TIMEOUT_MS"),

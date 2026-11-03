@@ -22,7 +22,7 @@ No dependency on `codex-bridge`, Slack, OpenClaw, a public listening port, or a 
 - Kilo HTTP `prompt_async`, `session/status`, `session/message`, `permission`, `question` and global SSE integration
 - Supabase Realtime wake-up with polling fallback; idempotency keys and atomic claims
 - Reconciliation of in-progress sessions after Bridge restart, without automatic replay
-- Logical workspace allowlist (the task cannot supply an arbitrary filesystem path)
+- Arbitrary absolute session directories, without a Bridge workspace allowlist
 - Separate Supabase tables and service-role-only views
 
 ## Requirements
@@ -49,6 +49,6 @@ Pending permissions are surfaced as `awaiting_approval`; decisions must be expli
 
 ## Safety
 
-Use Kilo only on authorized, non-sensitive workspaces. NVIDIA free inference endpoints may log prompts and results and are designated for trial use. Never mount secrets, credentials, private customer data, or production databases into an accessible workspace. The server must listen only on `127.0.0.1`. Docker access through the `ubuntu` user is powerful: use isolated test workspaces first.
+The Bridge does not limit filesystem locations: a session can start in any absolute directory, including `/`. Kilo runs as the existing `ubuntu` user, so ordinary Unix permissions (and any existing sudo/Docker privileges) still apply. This grants broad exposure to host files: NVIDIA free inference endpoints may log prompts and results and are designated for trial use. Do not send passwords, secrets, private customer data, or production database contents to the free model. The Server must listen only on `127.0.0.1`.
 
 MIT licensed. See `LICENSE`.

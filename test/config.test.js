@@ -4,8 +4,7 @@ import { loadConfig } from "../src/config.js";
 import { validateCommand } from "../src/commands.js";
 
 function env(overrides = {}) {
-  return { SUPABASE_URL: "https://example.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "test-key",
-    KILO_WORKSPACES_JSON: '{"demo":"/opt/kilo-workspaces/demo"}', BRIDGE_APP_DIR: "/opt/kilo-bridge", ...overrides };
+  return { SUPABASE_URL: "https://example.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "test-key", ...overrides };
 }
 
 test("accepts fixed free model and loopback Kilo server", () => {
@@ -18,13 +17,17 @@ test("rejects paid/auto models", () => {
   assert.throws(() => loadConfig(env({ KILO_MODEL: "openai/gpt-5.4" })), /pinned/);
   assert.throws(() => loadConfig(env({ KILO_MODEL: "another/model:free" })), /pinned/);
 });
-test("rejects public server and unsafe workspace", () => {
+test("rejects public server and relative default directory", () => {
   assert.throws(() => loadConfig(env({ KILO_SERVER_URL: "http://0.0.0.0:4096" })), /loopback/);
-  assert.throws(() => loadConfig(env({ KILO_WORKSPACES_JSON: '{"demo":"/opt"}' })), /Bridge application/);
+  assert.throws(() => loadConfig(env({ KILO_DEFAULT_DIRECTORY: "relative/project" })), /absolute path/);
 });
-test("validates command types and workspaces", () => {
+test("accepts arbitrary absolute session directories, including filesystem root", () => {
   const config = loadConfig(env());
-  assert.deepEqual(validateCommand({ command_type: "create_session", payload: { workspace_key: "demo" } }, config),
-    { workspaceKey: "demo", title: "Kilo session" });
-  assert.throws(() => validateCommand({ command_type: "create_session", payload: { workspace_key: "/etc" } }, config));
+  assert.deepEqual(validateCommand({ command_type: "create_session", payload: { directory: "/" } }, config),
+    { workspaceKey: "host", directory: "/", title: "Kilo session" });
+  assert.deepEqual(validateCommand({ command_type: "create_session", payload: { directory: "/etc/../opt/qjai-cms" } }, config),
+    { workspaceKey: "host", directory: "/opt/qjai-cms", title: "Kilo session" });
+  assert.deepEqual(validateCommand({ command_type: "create_session", payload: {} }, config),
+    { workspaceKey: "host", directory: "/home/ubuntu", title: "Kilo session" });
+  assert.throws(() => validateCommand({ command_type: "create_session", payload: { directory: "relative/project" } }, config), /absolute/);
 });

@@ -18,12 +18,13 @@ select id,status,result,error from coord.kilo_commands where id = 'COMMAND_UUID'
 
 ## 2. Create a session
 
-Use a configured logical workspace key, never a filesystem path.
+Specify any absolute session directory. There is no Bridge workspace allowlist.
+The optional `workspace_key` is only a human-readable label (defaults to `host`).
 
 ```sql
 insert into coord.kilo_commands (idempotency_key,command_type,payload)
 values (gen_random_uuid(),'create_session',
-        '{"workspace_key":"demo","title":"Kilo MVP test"}'::jsonb)
+        '{"directory":"/opt/qjai-cms","title":"Kilo coding task"}'::jsonb)
 returning id,status;
 ```
 

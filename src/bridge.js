@@ -42,7 +42,7 @@ export class Bridge {
     this.ssePromise = this.listenSse(this.sseAbort.signal);
     this.wake();
     this.logger.info("bridge.started", { bridge_id: this.config.bridgeId, model: this.config.kiloModel,
-      workspace_keys: Object.keys(this.config.workspaces) });
+      default_directory: this.config.defaultDirectory });
   }
 
   async stop() {
@@ -103,9 +103,8 @@ export class Bridge {
     }
   }
 
-  async createSession(command, { workspaceKey, title }) {
-    const directory = this.config.workspaces[workspaceKey];
-    const session = await this.store.createSession({ workspace_key: workspaceKey, title, status: "creating" });
+  async createSession(command, { workspaceKey, directory, title }) {
+    const session = await this.store.createSession({ workspace_key: workspaceKey, directory, title, status: "creating" });
     await this.store.updateCommand(command.id, { session_id: session.id });
     command.session_id = session.id;
     command.dispatched = true;
@@ -113,7 +112,7 @@ export class Bridge {
     if (!created?.id) throw new Error("Kilo createSession response has no id");
     await this.store.updateSession(session.id, { kilo_session_id: created.id, status: "ready" });
     await this.finish(command, "succeeded", { session_id: session.id, kilo_session_id: created.id,
-      workspace_key: workspaceKey });
+      workspace_key: workspaceKey, directory });
   }
 
   async startTurn(command, { text }) {
@@ -121,8 +120,8 @@ export class Bridge {
     if (!session || !session.kilo_session_id || session.status !== "ready") {
       throw new Error("Kilo session is not ready");
     }
-    const directory = this.config.workspaces[session.workspace_key];
-    if (!directory) throw new Error("Workspace has been removed from allowlist");
+    const directory = session.directory;
+    if (!directory) throw new Error("Session directory is missing");
     const messages = await this.kilo.messages(directory, session.kilo_session_id);
     if (!Array.isArray(messages)) throw new Error("Kilo messages response was not an array");
     const result = { message_count_before: messages.length,
@@ -143,7 +142,7 @@ export class Bridge {
       throw new Error("Session has no active turn");
     }
     command.dispatched = true;
-    await this.kilo.abort(this.config.workspaces[session.workspace_key], session.kilo_session_id);
+    await this.kilo.abort(session.directory, session.kilo_session_id);
     if (session.current_command_id) await this.store.updateCommand(session.current_command_id,
       { status: "cancelled", finished_at: now(), lease_expires_at: null });
     await this.store.updateSession(session.id, { status: "ready", current_command_id: null });
@@ -157,7 +156,7 @@ export class Bridge {
     }
     const session = await this.store.session(approval.session_id);
     command.dispatched = true;
-    await this.kilo.replyPermission(this.config.workspaces[session.workspace_key], approval.kilo_request_id, decision);
+    await this.kilo.replyPermission(session.directory, approval.kilo_request_id, decision);
     await this.store.updateApproval(approval.id, { status: decision === "reject" ? "rejected" : "approved",
       decision, resolved_at: now() });
     await this.store.updateSession(session.id, { status: "running" });
@@ -180,7 +179,7 @@ export class Bridge {
 
   async reconcile(session) {
     if (!session.kilo_session_id || !session.current_command_id) return;
-    const directory = this.config.workspaces[session.workspace_key];
+    const directory = session.directory;
     if (!directory) return;
     const command = await this.store.command(session.current_command_id);
     if (!command || isTerminal(command.status)) return;
