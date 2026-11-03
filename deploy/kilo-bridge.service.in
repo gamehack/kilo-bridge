@@ -1,0 +1,18 @@
+[Unit]
+Description=PrimalFlow Kilo Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=@APP_DIR@
+EnvironmentFile=@ENV_FILE@
+ExecStart=@NODE_BIN@ @APP_DIR@/src/index.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

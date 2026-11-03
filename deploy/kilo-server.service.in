@@ -1,0 +1,18 @@
+[Unit]
+Description=Kilo Agent HTTP Server for Kilo Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu
+Environment=HOME=/home/ubuntu
+EnvironmentFile=-/etc/kilo-bridge/server.env
+ExecStart=@KILO_BIN@ serve --hostname 127.0.0.1 --port @KILO_PORT@
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target
