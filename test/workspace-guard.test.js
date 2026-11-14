@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, symlinkSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, symlinkSync, rmSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { assertHostDirectory, validateCommand } from "../src/commands.js";
@@ -15,8 +15,9 @@ test("MacBook confines sessions to real existing directories under workspace", (
     mkdirSync(outside);
     symlinkSync(outside, join(root, "escape"), "dir");
     const config = { bridgeHostId: "macbook-01", defaultDirectory: root };
-    assert.equal(assertHostDirectory(safe, config), safe);
-    assert.equal(assertHostDirectory(root, config), root);
+    // macOS /var is a symlink to /private/var; compare canonical paths.
+    assert.equal(assertHostDirectory(safe, config), realpathSync(safe));
+    assert.equal(assertHostDirectory(root, config), realpathSync(root));
     assert.throws(() => assertHostDirectory(outside, config), /escapes/);
     assert.throws(() => assertHostDirectory(join(root, "escape"), config), /escapes/);
     assert.throws(() => assertHostDirectory(join(root, "does-not-exist"), config), /already exist/);
@@ -26,7 +27,7 @@ test("MacBook confines sessions to real existing directories under workspace", (
       payload: { directory: join(root, "escape"), title: "Linked" } }, config), /escapes/);
     const valid = validateCommand({ command_type: "create_session",
       payload: { directory: safe, title: "Safe", workspace_key: "macbook_smoke" } }, config);
-    assert.equal(valid.directory, safe);
+    assert.equal(valid.directory, realpathSync(safe));
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
