@@ -50,9 +50,9 @@ test("macbook-02 uses distinct account, broker and host identity", () => {
   const plists = renderDaemonPlists(mb2);
   assert.ok(plists[LABEL_BRIDGE].includes(BROKER_URL_MB2));
   assert.ok(!plists[LABEL_BRIDGE].includes("<string>"+BROKER_URL+"</string>"));
-  assert.match(plists[LABEL_BRIDGE], /<key>MACBOOK_WORKER_HOST_ID<\\/key><string>macbook-02<\\/string>/);
+  assert.match(plists[LABEL_BRIDGE], /<key>MACBOOK_WORKER_HOST_ID<\/key><string>macbook-02<\/string>/);
   for (const content of Object.values(plists)) {
-    assert.match(content, /<key>UserName<\\/key><string>username<\\/string>/);
+    assert.match(content, /<key>UserName<\/key><string>username<\/string>/);
     assert.doesNotMatch(content, /MACBOOK02_WORKER_TOKEN|SUPABASE_SERVICE_ROLE_KEY|macbook-02-worker-token/);
   }
   assert.throws(() => renderDaemonPlists({ ...mb2, user:"gamehack" }), /pinned/);
