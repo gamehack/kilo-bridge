@@ -1,5 +1,5 @@
-// Attended macOS worker preflight and foreground start.
-// Usage: node scripts/macbook-worker.js check|start https://<project>.supabase.co/functions/v1/kilo-host-broker
+// macOS worker preflight, foreground start, and launchd-managed service.
+// Usage: node scripts/macbook-worker.js check|start|service BROKER_URL
 // Does not print credentials or store service_role on the MacBook.
 import { readFileSync, statSync } from "node:fs";
 import { homedir, platform, arch } from "node:os";
@@ -11,7 +11,7 @@ function requireCondition(condition, message) {
 
 const mode = process.argv[2];
 const urlString = process.argv[3];
-requireCondition(["check", "start"].includes(mode), "Usage: macbook-worker.js check|start BROKER_URL");
+requireCondition(["check", "start", "service"].includes(mode), "Usage: macbook-worker.js check|start|service BROKER_URL");
 requireCondition(urlString, "BROKER_URL argument is required");
 const brokerUrl = new URL(urlString);
 requireCondition(brokerUrl.protocol === "https:" &&
@@ -45,10 +45,12 @@ async function brokerRequest(secret) {
     signal: AbortSignal.timeout(15000)
   });
 }
-const denied = await brokerRequest("definitely-invalid-macbook-token");
-requireCondition(denied.status === 401,
-  `Invalid-token check failed (expected 401, got ${denied.status})`);
-console.log("Broker invalid-token rejection: PASS (HTTP 401)");
+if (mode !== "service") {
+  const denied = await brokerRequest("definitely-invalid-macbook-token");
+  requireCondition(denied.status === 401,
+    `Invalid-token check failed (expected 401, got ${denied.status})`);
+  console.log("Broker invalid-token rejection: PASS (HTTP 401)");
+}
 const accepted = await brokerRequest(token);
 requireCondition(accepted.status === 200,
   `Broker authentication failed (HTTP ${accepted.status}); check secret value and deployment`);
@@ -57,7 +59,7 @@ requireCondition(Array.isArray(json?.data), "Broker returned unexpected sessions
 console.log(`Broker authorized read: PASS (${json.data.length} MacBook active sessions)`);
 console.log("MacBook worker preflight: PASS");
 
-if (mode === "start") {
+if (mode === "start" || mode === "service") {
   process.env.BRIDGE_HOST_ID = "macbook-01";
   process.env.KILO_BROKER_URL = brokerUrl.href;
   process.env.KILO_BROKER_TOKEN = token;
@@ -65,6 +67,6 @@ if (mode === "start") {
   process.env.KILO_SERVER_URL = "http://127.0.0.1:4096";
   process.env.KILO_MODEL = "nvidia/nemotron-3.5-super-vl:free";
   process.env.BRIDGE_POLL_INTERVAL_MS = "10000";
-  console.log("Starting attended MacBook Bridge in foreground; Ctrl+C to stop.");
+  console.log(mode === "service" ? "Starting launchd-managed MacBook Bridge" : "Starting attended MacBook Bridge in foreground; Ctrl+C to stop.");
   await import("../src/index.js");
 }
