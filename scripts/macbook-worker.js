@@ -9,6 +9,14 @@ function requireCondition(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+const HOSTS = Object.freeze({
+  "macbook-01": { brokerPath: "/functions/v1/kilo-host-broker", tokenFile: "macbook-worker-token" },
+  "macbook-02": { brokerPath: "/functions/v1/kilo-host-broker-mb2", tokenFile: "macbook-02-worker-token" }
+});
+const hostId = process.env.MACBOOK_WORKER_HOST_ID || "macbook-01";
+const host = HOSTS[hostId];
+requireCondition(host, "Unknown MacBook host ID");
+
 const mode = process.argv[2];
 const urlString = process.argv[3];
 requireCondition(["check", "start", "service"].includes(mode), "Usage: macbook-worker.js check|start|service BROKER_URL");
@@ -16,14 +24,14 @@ requireCondition(urlString, "BROKER_URL argument is required");
 const brokerUrl = new URL(urlString);
 requireCondition(brokerUrl.protocol === "https:" &&
   brokerUrl.hostname === "xnndeqrduxkdlwcdklbc.supabase.co" &&
-  brokerUrl.pathname === "/functions/v1/kilo-host-broker" &&
+  brokerUrl.pathname === host.brokerPath &&
   !brokerUrl.username && !brokerUrl.password && !brokerUrl.search && !brokerUrl.hash,
   "Broker URL must match the approved agent-coordination endpoint");
 requireCondition(platform() === "darwin" && arch() === "x64", "This helper targets the Intel MacBook");
 requireCondition(!process.env.SUPABASE_SERVICE_ROLE_KEY,
   "Remove the production SUPABASE_SERVICE_ROLE_KEY from this shell before continuing");
 
-const tokenFile = path.join(homedir(), ".config", "primalflow", "macbook-worker-token");
+const tokenFile = path.join(homedir(), ".config", "primalflow", host.tokenFile);
 const fileMode = statSync(tokenFile).mode;
 requireCondition((fileMode & 0o077) === 0, "Worker token file must be private (chmod 600)");
 const token = readFileSync(tokenFile, "utf8").trim();
@@ -60,7 +68,7 @@ console.log(`Broker authorized read: PASS (${json.data.length} MacBook active se
 console.log("MacBook worker preflight: PASS");
 
 if (mode === "start" || mode === "service") {
-  process.env.BRIDGE_HOST_ID = "macbook-01";
+  process.env.BRIDGE_HOST_ID = hostId;
   process.env.KILO_BROKER_URL = brokerUrl.href;
   process.env.KILO_BROKER_TOKEN = token;
   process.env.KILO_DEFAULT_DIRECTORY = path.join(homedir(), "kilo-workspaces");
