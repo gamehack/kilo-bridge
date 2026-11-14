@@ -27,7 +27,11 @@ export function loadConfig(env = process.env) {
     throw new Error("KILO_MODEL is pinned to nvidia/nemotron-3.5-super-vl:free for the MVP");
   }
 
+  const bridgeHostId = env.BRIDGE_HOST_ID || "silicon-valley-01";
+  if (!/^[a-z][a-z0-9_-]{1,63}$/.test(bridgeHostId)) throw new Error("Invalid BRIDGE_HOST_ID");
+
   return {
+    bridgeHostId,
     supabaseUrl: supabaseUrl.origin,
     supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
     kiloServerUrl: kiloUrl.origin,
