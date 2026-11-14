@@ -59,6 +59,9 @@ export function validateCommand(command, config) {
     case "approval_decision":
       if (!UUID_RE.test(command.session_id || "") || !UUID_RE.test(payload.approval_id || "")) throw new Error("Invalid approval reference");
       if (!["once", "always", "reject"].includes(payload.decision)) throw new Error("Invalid approval decision");
+      if (config.bridgeHostId === "macbook-01" && payload.decision === "always") {
+        throw new Error("Persistent approvals are disabled for MacBook test worker");
+      }
       return { approvalId: payload.approval_id, decision: payload.decision };
     case "health_check": return {};
     default: throw new Error("Unsupported command type");
