@@ -20,11 +20,18 @@ It is **not** an authorization to enroll a second worker into the live queue.
   retained on `silicon-valley-01`, with 2 existing approvals unaffected.
 - **Completed:** Silicon Valley legacy `health_check` succeeded after migration;
   existing Bridge service has not been replaced.
-- **Completed:** `kilo-host-broker` Edge Function v1 deployed (JWT verification
+- **Completed:** `kilo-host-broker` Edge Function v3 deployed (JWT verification
   disabled because it validates a dedicated Bearer token internally).
-- **Completed:** GitHub CI for host-scoped code and Deno checks passed.
-- **Not yet verified:** MacBook's secret successfully authenticates with
-  `kilo-host-broker`, or the MacBook worker handles a remotely queued command.
+- **Completed:** MacBook's secret authenticated; authorized broker read returned HTTP 200
+  and an invalid token was rejected with HTTP 401.
+- **Completed:** MacBook worker claimed a dedicated health_check (succeeded),
+  created a session, ran read-only `pwd`/`uname`, and returned the final response.
+- **Completed:** out-of-workspace session create failed closed; a test file write
+  required explicit `once` approval and subsequently succeeded.
+- **Implemented on branch, not running locally until restart:** realpath workspace
+  guard (including symlink escape), revalidation of active sessions, and
+  disabling `always` approvals for MacBook.
+- **Pending:** attended stop/restart recovery test and post-restart host verification.
 - **Not deployed:** MacBook persistent launchd, auto-start, or production workloads.
 
 The migration/Edge deployment is a deliberate exception to the original staging
@@ -125,3 +132,21 @@ secrets, private documents or production customer data.
 - A complete shutdown/restart verification is required before unattended use.
 - With a worn battery and an older unsupported macOS, do not leave the laptop
   operating unattended until power, security and thermal risks are addressed.
+
+## Operator recovery procedure (attended only)
+
+1. In the MacBook Bridge terminal press `Ctrl+C` to stop the Bridge. Leave the
+   local `kilo serve` process running in its separate terminal.
+2. Update code and run tests while stopped:
+   `cd ~/kilo-workspaces/kilo-bridge && git pull --ff-only && npm run check && npm test`.
+3. Start the Bridge again using the documented `node scripts/macbook-worker.js start ...`
+   command; keep it in the foreground. The server will pick up pending
+   Mac-targeted tasks without consuming Silicon Valley work.
+4. A new read-only health_check queued during the stop must succeed only after
+   the Bridge has restarted. Do not automatically replay an uncertain task;
+   review `needs_reconciliation` records first.
+
+The realpath guard is **not an OS sandbox**. The Kilo process retains the
+privileges of the Mac user; its shell tools may still read outside the workspace
+if instructed or compromised. Until an OS-level sandbox or dedicated restricted
+account is deployed, keep the worker attended and use only reviewed test tasks.
