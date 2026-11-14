@@ -1,4 +1,4 @@
-import { errorObject, validateCommand } from "./commands.js";
+import { errorObject, validateCommand, assertHostDirectory } from "./commands.js";
 
 const now = () => new Date().toISOString();
 const isTerminal = (status) => ["succeeded", "failed", "cancelled", "needs_reconciliation"].includes(status);
@@ -121,8 +121,7 @@ export class Bridge {
     if (!session || !session.kilo_session_id || session.status !== "ready") {
       throw new Error("Kilo session is not ready");
     }
-    const directory = session.directory;
-    if (!directory) throw new Error("Session directory is missing");
+    const directory = assertHostDirectory(session.directory, this.config);
     const messages = await this.kilo.messages(directory, session.kilo_session_id);
     if (!Array.isArray(messages)) throw new Error("Kilo messages response was not an array");
     const result = { message_count_before: messages.length,
@@ -143,7 +142,8 @@ export class Bridge {
       throw new Error("Session has no active turn");
     }
     command.dispatched = true;
-    await this.kilo.abort(session.directory, session.kilo_session_id);
+    const directory = assertHostDirectory(session.directory, this.config);
+    await this.kilo.abort(directory, session.kilo_session_id);
     if (session.current_command_id) await this.store.updateCommand(session.current_command_id,
       { status: "cancelled", finished_at: now(), lease_expires_at: null });
     await this.store.updateSession(session.id, { status: "ready", current_command_id: null });
@@ -158,7 +158,8 @@ export class Bridge {
     const session = await this.store.session(approval.session_id);
     if (!session) throw new Error("Approval session does not belong to this host");
     command.dispatched = true;
-    await this.kilo.replyPermission(session.directory, approval.kilo_request_id, decision);
+    const directory = assertHostDirectory(session.directory, this.config);
+    await this.kilo.replyPermission(directory, approval.kilo_request_id, decision);
     await this.store.updateApproval(approval.id, { status: decision === "reject" ? "rejected" : "approved",
       decision, resolved_at: now() });
     await this.store.updateSession(session.id, { status: "running" });
@@ -181,10 +182,19 @@ export class Bridge {
 
   async reconcile(session) {
     if (!session.kilo_session_id || !session.current_command_id) return;
-    const directory = session.directory;
-    if (!directory) return;
     const command = await this.store.command(session.current_command_id);
     if (!command || isTerminal(command.status)) return;
+    let directory;
+    try {
+      directory = assertHostDirectory(session.directory, this.config);
+    } catch (error) {
+      await this.store.updateCommand(command.id, { status: "needs_reconciliation",
+        error: errorObject(error), finished_at: now(), lease_expires_at: null });
+      await this.store.updateSession(session.id, { status: "needs_reconciliation" });
+      await this.store.event({ command_id: command.id, session_id: session.id,
+        event_type: "turn.directory_invalid", payload: { name: error?.name || "Error" } });
+      return;
+    }
     const permissions = await this.kilo.pendingPermissions(directory);
     const pending = (Array.isArray(permissions) ? permissions : []).filter((p) => p.sessionID === session.kilo_session_id);
     if (pending.length) {
