@@ -11,7 +11,18 @@ function positiveInt(value, defaultValue, name) {
 export function loadConfig(env = process.env) {
   const supabaseUrl = new URL(env.SUPABASE_URL || "https://example.supabase.co");
   if (supabaseUrl.protocol !== "https:") throw new Error("SUPABASE_URL must be HTTPS");
-  if (!env.SUPABASE_SERVICE_ROLE_KEY) throw new Error("SUPABASE_SERVICE_ROLE_KEY is required");
+  const brokerUrl = env.KILO_BROKER_URL ? new URL(env.KILO_BROKER_URL) : null;
+  if (brokerUrl && brokerUrl.protocol !== "https:" &&
+      !(brokerUrl.protocol === "http:" && ["127.0.0.1", "localhost"].includes(brokerUrl.hostname))) {
+    throw new Error("KILO_BROKER_URL must be HTTPS or local loopback");
+  }
+  if (brokerUrl && (!env.KILO_BROKER_TOKEN || env.KILO_BROKER_TOKEN.length < 40)) {
+    throw new Error("KILO_BROKER_TOKEN must contain a high-entropy secret");
+  }
+  if (brokerUrl && env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("Broker worker must not carry a Supabase service-role secret");
+  }
+  if (!brokerUrl && !env.SUPABASE_SERVICE_ROLE_KEY) throw new Error("SUPABASE_SERVICE_ROLE_KEY is required without KILO_BROKER_URL");
 
   const kiloUrl = new URL(env.KILO_SERVER_URL || "http://127.0.0.1:4096");
   if (kiloUrl.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(kiloUrl.hostname)) {
@@ -32,6 +43,8 @@ export function loadConfig(env = process.env) {
 
   return {
     bridgeHostId,
+    brokerUrl: brokerUrl?.href || null,
+    brokerToken: env.KILO_BROKER_TOKEN || null,
     supabaseUrl: supabaseUrl.origin,
     supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
     kiloServerUrl: kiloUrl.origin,
