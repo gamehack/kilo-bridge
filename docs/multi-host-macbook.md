@@ -24,19 +24,26 @@ It is **not** an authorization to enroll a second worker into the live queue.
 4. On Mac, confirm Kilo server identity and model access:
    `kilo --version`, `ps -axo pid,command | grep '[k]ilo serve'`,
    `kilo models`. Run a localhost HTTP session smoke test.
-5. Before copying **any** credentials to the MacBook, implement a
-   host-scoped credential path (recommended: a private authenticated broker
-   endpoint with a host-specific revocable token). The current Bridge still
-   requires Supabase `service_role`, which has project-wide authority and
-   is **not** appropriate for routine deployment to a legacy laptop.
-6. For a Mac-only development run with an approved, isolated test Supabase
-   project, set environment variables in a private file readable only by the
-   service account:
+5. A host-specific Supabase Edge Function broker is included in this PR at
+   `supabase/functions/kilo-host-broker/index.ts`. Before MacBook enrollment,
+   review its authorization, host scoping and working-directory restrictions,
+   deploy it with JWT verification disabled and set a high-entropy secret
+   `MACBOOK_WORKER_TOKEN` in Supabase Edge Function secrets. Generate a token
+   locally (`openssl rand -hex 32`), never paste it into chat or GitHub.
+   The endpoint validates its own Bearer token; without one it returns 401.
+   Verify a bad token is rejected before testing a good token.
+6. For a Mac-only development run with an approved test Supabase deployment,
+   use a private environment file readable only by the service account:
    - `BRIDGE_HOST_ID=macbook-01`
    - `KILO_SERVER_URL=http://127.0.0.1:4096`
    - `KILO_DEFAULT_DIRECTORY=/Users/gamehack/kilo-workspaces`
    - `KILO_MODEL=nvidia/nemotron-3.5-super-vl:free`
-   - `SUPABASE_URL` and test-project service credentials
+   - `KILO_BROKER_URL=https://<PROJECT>.supabase.co/functions/v1/kilo-host-broker`
+   - `KILO_BROKER_TOKEN=<SAME_RANDOM_TOKEN_CONFIGURED_ON_SERVER>`
+   - Remove `SUPABASE_SERVICE_ROLE_KEY`; broker mode rejects this variable.
+   The MacBook does not connect directly to PostgREST and does not receive
+   unrestricted database credentials. The broker remains a privileged service
+   and must be audited before deployment.
 7. Initially launch the Bridge in the foreground using `npm ci && npm test`
    then `npm start`. Do not install persistent launchd jobs until routing,
    crash recovery, permission gating and local safety are verified.
