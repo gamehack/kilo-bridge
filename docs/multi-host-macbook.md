@@ -13,6 +13,39 @@ It is **not** an authorization to enroll a second worker into the live queue.
 - The MacBook battery is marked **Service Recommended** at 1055 cycles.
   Keep tests attended, with the lid open and adequate cooling.
 
+## Operational status (2026-11-14)
+
+- **Completed:** database host-routing migration applied to agent-coordination
+  (`xnndeqrduxkdlwcdklbc`); 21 legacy sessions and 362 legacy commands
+  retained on `silicon-valley-01`, with 2 existing approvals unaffected.
+- **Completed:** Silicon Valley legacy `health_check` succeeded after migration;
+  existing Bridge service has not been replaced.
+- **Completed:** `kilo-host-broker` Edge Function v1 deployed (JWT verification
+  disabled because it validates a dedicated Bearer token internally).
+- **Completed:** GitHub CI for host-scoped code and Deno checks passed.
+- **Not yet verified:** MacBook's secret successfully authenticates with
+  `kilo-host-broker`, or the MacBook worker handles a remotely queued command.
+- **Not deployed:** MacBook persistent launchd, auto-start, or production workloads.
+
+The migration/Edge deployment is a deliberate exception to the original staging
+checklist below. Keep the PR as Draft until MacBook end-to-end verification.
+
+MacBook attended check and start (no secrets in terminal arguments):
+
+```sh
+cd "$HOME/kilo-workspaces/kilo-bridge"
+git pull --ff-only
+node scripts/macbook-worker.js check \
+  https://xnndeqrduxkdlwcdklbc.supabase.co/functions/v1/kilo-host-broker
+node scripts/macbook-worker.js start \
+  https://xnndeqrduxkdlwcdklbc.supabase.co/functions/v1/kilo-host-broker
+```
+
+`check` must reject an invalid token with HTTP 401 and authenticate the local
+token with HTTP 200. `start` keeps the worker in the foreground until Ctrl+C;
+do not close it during the end-to-end test. The local Kilo server must also
+remain running.
+
 ## Rollout order
 
 1. Review and test this PR; do **not** deploy to Silicon Valley yet.
