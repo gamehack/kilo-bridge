@@ -158,3 +158,70 @@ The realpath guard is **not an OS sandbox**. The Kilo process retains the
 privileges of the Mac user; its shell tools may still read outside the workspace
 if instructed or compromised. Until an OS-level sandbox or dedicated restricted
 account is deployed, keep the worker attended and use only reviewed test tasks.
+
+## Unattended system boot services (new, not yet installed on the Mac)
+
+Install as the regular \`gamehack\` login with one interactive administrator
+authorization. Two separate **system** LaunchDaemons are installed under
+\`/Library/LaunchDaemons\` (not LaunchAgents):
+
+- \`org.primalflow.kilo-server\` -> \`kilo serve --hostname 127.0.0.1 --port 4096\`
+- \`org.primalflow.kilo-bridge\` -> \`node scripts/macbook-worker.js service <broker URL>\`
+
+Both set \`RunAtLoad=true\`, \`KeepAlive=true\`, and \`ThrottleInterval=20\` seconds.
+Both run under \`UserName=gamehack\`, **not root**. Plists are installed as
+\`root:wheel\` mode \`0644\` and contain no passwords or Supabase service keys.
+The Bridge reads its node-specific Bearer token from
+\`~/.config/primalflow/macbook-worker-token\` each start; it still uses the
+\`macbook-01\`-only Edge Function. Log files are under
+\`~/Library/Logs/PrimalFlow\`.
+
+A one-time interactive installation on the Mac:
+
+\`\`\`sh
+cd "$HOME/kilo-workspaces/kilo-bridge"
+git pull --ff-only
+npm run check && npm test
+bash scripts/install-macos-daemons.sh install
+bash scripts/install-macos-daemons.sh status
+\`\`\`
+
+The installer requests \`sudo\` once for root-owned plists and launchctl only.
+It gracefully stops the old foreground Kilo and Bridge processes before
+starting managed instances. It can be rerun for updating the plists. **Do not
+run the installer itself through Kilo Bridge**: it would stop its own control
+channel. Never paste the token into a command or a plist.
+
+Inspect logs (no passwords should ever appear):
+
+\`\`\`sh
+tail -n 50 "$HOME/Library/Logs/PrimalFlow/kilo-server.stderr.log"
+tail -n 50 "$HOME/Library/Logs/PrimalFlow/kilo-bridge.stdout.log"
+\`\`\`
+
+Restart or test process supervision:
+
+\`\`\`sh
+sudo launchctl kickstart -k system/org.primalflow.kilo-server
+sudo launchctl kickstart -k system/org.primalflow.kilo-bridge
+bash scripts/install-macos-daemons.sh status
+\`\`\`
+
+Removal (does not erase state, logs, or tokens):
+
+\`\`\`sh
+bash scripts/install-macos-daemons.sh uninstall
+\`\`\`
+
+**Unverified until tested on hardware:** Mac Kilo provider authentication under
+a system LaunchDaemon may depend on a user-login keychain; FileVault may require
+a human to unlock the disk after full power-off. Neither launchd nor any worker
+can run while the machine is asleep or powered off. Closed-lid sleep and
+thermals on the worn battery also require explicit power management decisions.
+A successful manual start does **not** prove pre-login automatic operation.
+Verify a physical reboot, a daemon crash-restart, and remote health checks.
+
+**Important:** process supervision is not an OS security sandbox. The service
+runs as the existing Mac user; do not process untrusted tasks, personal
+secrets, or production data. Approval decisions stay scoped to \`once\` or
+\`reject\` for the MacBook; no broad automatic privileged approval is enabled.
