@@ -4,17 +4,25 @@ set -euo pipefail
 LABEL_SERVER="org.primalflow.kilo-server"
 LABEL_BRIDGE="org.primalflow.kilo-bridge"
 DAEMON_DIR="/Library/LaunchDaemons"
-EXPECTED_HOME="/Users/gamehack"
+CURRENT_USER=$(/usr/bin/id -un)
+case "$CURRENT_USER" in
+  gamehack) EXPECTED_HOST="macbook-01"; TOKEN_NAME="macbook-worker-token" ;;
+  username) EXPECTED_HOST="macbook-02"; TOKEN_NAME="macbook-02-worker-token" ;;
+  *) printf '[primalflow] unsupported Mac account\n' >&2; exit 1 ;;
+esac
+HOST_ID="${MACBOOK_WORKER_HOST_ID:-$EXPECTED_HOST}"
+EXPECTED_HOME="/Users/$CURRENT_USER"
 REPO="$EXPECTED_HOME/kilo-workspaces/kilo-bridge"
 LOG_DIR="$EXPECTED_HOME/Library/Logs/PrimalFlow"
-TOKEN_FILE="$EXPECTED_HOME/.config/primalflow/macbook-worker-token"
+TOKEN_FILE="$EXPECTED_HOME/.config/primalflow/$TOKEN_NAME"
 TEMP_DIR=""
 trap 'if [ -n "$TEMP_DIR" ]; then /bin/rm -rf "$TEMP_DIR"; fi' EXIT
 
 say() { printf '[primalflow] %s\n' "$*"; }
 fail() { printf '[primalflow] ERROR: %s\n' "$*" >&2; exit 1; }
 require_mac() {
-  [ "$(/usr/bin/id -un)" = "gamehack" ] || fail "Run as gamehack, NOT via sudo"
+  [ "$HOST_ID" = "$EXPECTED_HOST" ] || fail "Host ID does not match registered Mac account"
+  [ "$(/usr/bin/id -un)" = "$CURRENT_USER" ] || fail "Do not run via sudo"
   [ "$HOME" = "$EXPECTED_HOME" ] || fail "Unexpected HOME"
   [ "$(/usr/bin/uname -s)" = "Darwin" ] || fail "macOS required"
   [ "$(/usr/bin/uname -m)" = "x86_64" ] || fail "Intel MacBook required"
@@ -81,7 +89,7 @@ install_services() {
   /bin/mkdir -p "$LOG_DIR"
   /bin/chmod 700 "$LOG_DIR"
   TEMP_DIR=$(/usr/bin/mktemp -d /tmp/primalflow-launchd.XXXXXX)
-  "$node_bin" "$REPO/scripts/render-macos-daemons.js" "$TEMP_DIR" "$node_bin" \
+  MACBOOK_WORKER_HOST_ID="$HOST_ID" "$node_bin" "$REPO/scripts/render-macos-daemons.js" "$TEMP_DIR" "$node_bin" \
     "$kilo_bin" "$EXPECTED_HOME" "$REPO" "$user_group" "$LOG_DIR"
   /usr/bin/plutil -lint "$TEMP_DIR/$LABEL_SERVER.plist" "$TEMP_DIR/$LABEL_BRIDGE.plist" ||
     fail "Invalid launchd plists"
