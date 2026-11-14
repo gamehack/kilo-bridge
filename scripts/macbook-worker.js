@@ -15,8 +15,10 @@ requireCondition(["check", "start"].includes(mode), "Usage: macbook-worker.js ch
 requireCondition(urlString, "BROKER_URL argument is required");
 const brokerUrl = new URL(urlString);
 requireCondition(brokerUrl.protocol === "https:" &&
-  brokerUrl.pathname.endsWith("/functions/v1/kilo-host-broker"),
-  "Broker URL must be HTTPS with /functions/v1/kilo-host-broker path");
+  brokerUrl.hostname === "xnndeqrduxkdlwcdklbc.supabase.co" &&
+  brokerUrl.pathname === "/functions/v1/kilo-host-broker" &&
+  !brokerUrl.username && !brokerUrl.password && !brokerUrl.search && !brokerUrl.hash,
+  "Broker URL must match the approved agent-coordination endpoint");
 requireCondition(platform() === "darwin" && arch() === "x64", "This helper targets the Intel MacBook");
 requireCondition(!process.env.SUPABASE_SERVICE_ROLE_KEY,
   "Remove the production SUPABASE_SERVICE_ROLE_KEY from this shell before continuing");
