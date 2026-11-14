@@ -28,10 +28,18 @@ It is **not** an authorization to enroll a second worker into the live queue.
   created a session, ran read-only `pwd`/`uname`, and returned the final response.
 - **Completed:** out-of-workspace session create failed closed; a test file write
   required explicit `once` approval and subsequently succeeded.
-- **Implemented on branch, not running locally until restart:** realpath workspace
-  guard (including symlink escape), revalidation of active sessions, and
-  disabling `always` approvals for MacBook.
-- **Pending:** attended stop/restart recovery test and post-restart host verification.
+- **Completed:** Intel MacBook local `npm run check` and all 20 tests passed;
+  Linux + Intel macOS GitHub Actions matrix CI passed on commit `2cbdcb3`.
+- **Completed:** realpath workspace guard (including symlink escape), revalidation
+  of active sessions, and disabling `always` approvals for MacBook were deployed
+  locally by restarting the worker process.
+- **Completed:** attended stop/restart recovery test. Existing worker PID 3427
+  stopped via SIGINT; macbook-01 health_check
+  `96602982-4e36-4018-a609-58da48d0f618` remained queued with zero claims
+  while stopped. New worker PID 16766 claimed it exactly once and completed
+  at 2026-11-14 07:35:23 UTC with `kilo_connected=true`.
+- **Remaining risk:** no OS-level sandbox; the Kilo process retains Mac account
+  privileges. Do not use with untrusted prompts, secrets, or production data.
 - **Not deployed:** MacBook persistent launchd, auto-start, or production workloads.
 
 The migration/Edge deployment is a deliberate exception to the original staging
