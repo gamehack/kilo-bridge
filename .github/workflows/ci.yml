@@ -26,8 +26,13 @@ jobs:
           trap 'rm -rf "$ROOT"' EXIT
           node scripts/render-macos-daemons.js "$ROOT" /usr/local/bin/node /Users/gamehack/.kilo/bin/kilo /Users/gamehack /Users/gamehack/kilo-workspaces/kilo-bridge staff /Users/gamehack/Library/Logs/PrimalFlow
           plutil -lint "$ROOT"/org.primalflow.kilo-*.plist
+          rm -f "$ROOT"/org.primalflow.kilo-*.plist
+          export HOME=/Users/username USER=username MACBOOK_WORKER_HOST_ID=macbook-02
+          node scripts/render-macos-daemons.js "$ROOT" /Users/username/.nvm/versions/node/v24.14.0/bin/node /Users/username/.nvm/versions/node/v24.14.0/bin/kilo /Users/username /Users/username/kilo-workspaces/kilo-bridge staff /Users/username/Library/Logs/PrimalFlow
+          plutil -lint "$ROOT"/org.primalflow.kilo-*.plist
 
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
       - run: deno check supabase/functions/kilo-host-broker/index.ts
+      - run: deno check supabase/functions/kilo-host-broker-mb2/index.ts
