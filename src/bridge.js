@@ -83,6 +83,7 @@ export class Bridge {
 
   async execute(command) {
     try {
+      if (command.target_host !== this.config.bridgeHostId) throw new Error("Command host mismatch");
       const input = validateCommand(command, this.config);
       switch (command.command_type) {
         case "create_session": return await this.createSession(command, input);
@@ -104,7 +105,7 @@ export class Bridge {
   }
 
   async createSession(command, { workspaceKey, directory, title }) {
-    const session = await this.store.createSession({ workspace_key: workspaceKey, directory, title, status: "creating" });
+    const session = await this.store.createSession({ workspace_key: workspaceKey, directory, title, host_id: this.config.bridgeHostId, status: "creating" });
     await this.store.updateCommand(command.id, { session_id: session.id });
     command.session_id = session.id;
     command.dispatched = true;
@@ -155,6 +156,7 @@ export class Bridge {
       throw new Error("Approval is not pending in this session");
     }
     const session = await this.store.session(approval.session_id);
+    if (!session) throw new Error("Approval session does not belong to this host");
     command.dispatched = true;
     await this.kilo.replyPermission(session.directory, approval.kilo_request_id, decision);
     await this.store.updateApproval(approval.id, { status: decision === "reject" ? "rejected" : "approved",
