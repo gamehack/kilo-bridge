@@ -159,7 +159,7 @@ privileges of the Mac user; its shell tools may still read outside the workspace
 if instructed or compromised. Until an OS-level sandbox or dedicated restricted
 account is deployed, keep the worker attended and use only reviewed test tasks.
 
-## Unattended system boot services (new, not yet installed on the Mac)
+## Unattended system boot services (installed 2026-11-14)
 
 Install as the regular \`gamehack\` login with one interactive administrator
 authorization. Two separate **system** LaunchDaemons are installed under
@@ -225,3 +225,26 @@ Verify a physical reboot, a daemon crash-restart, and remote health checks.
 runs as the existing Mac user; do not process untrusted tasks, personal
 secrets, or production data. Approval decisions stay scoped to \`once\` or
 \`reject\` for the MacBook; no broad automatic privileged approval is enabled.
+
+### Installation verification — 2026-11-14
+
+- Installer completed on Intel macOS 12.7.6; 23/23 local tests passed.
+- Both root-owned LaunchDaemons were registered under the `system` domain,
+  as user `gamehack` (not root): Kilo started as PID 20454; Bridge initially
+  spawned as PID 20457.
+- Bridge's initial `exit 1` was confirmed by its own error log as
+  `ECONNREFUSED 127.0.0.1:4096`: startup race while local Kilo Server was
+  still binding its port. Launchd restarted the Bridge as PID 20484.
+- Cloud health_check `05d7db3d-50de-4486-9fb6-265a911c148f` was
+  processed by PID 20484 exactly once, succeeded, `kilo_connected=true`.
+- Cloud read-only `pwd`/`uname -sm` task
+  `ebd7751a-1f64-4396-a088-5f88ef402a70` succeeded via PID 20484,
+  returned workspace path and `Darwin x86_64`. This verifies actual
+  model/tool execution as a background LaunchDaemon.
+- Read-only power check: running on battery, 94%, discharging, approx 4h59
+  reported; battery-power `sleep=5`. AC-power `sleep=0`. FileVault off.
+  Must connect AC, maintain adequate cooling, and avoid lid-close sleep
+  for an unattended online worker. Battery health previously reported
+  `Service Recommended`, 1055 cycles.
+- **Not yet verified:** cold reboot before GUI login, offline/wake networking
+  recovery, and multiple-day stability. Do not claim permanent 24/7 uptime.
