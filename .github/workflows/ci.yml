@@ -18,6 +18,15 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      - name: Validate launchd plist on macOS
+        if: runner.os == 'macOS'
+        run: |
+          export HOME=/Users/gamehack USER=gamehack
+          ROOT=$(mktemp -d)
+          trap 'rm -rf "$ROOT"' EXIT
+          node scripts/render-macos-daemons.js "$ROOT" /usr/local/bin/node /Users/gamehack/.kilo/bin/kilo /Users/gamehack /Users/gamehack/kilo-workspaces/kilo-bridge staff /Users/gamehack/Library/Logs/PrimalFlow
+          plutil -lint "$ROOT"/org.primalflow.kilo-*.plist
+
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
