@@ -38,3 +38,17 @@ test("legacy Linux worker retains absolute-directory support", () => {
     payload: { directory: "/tmp", workspace_key: "host" } }, config);
   assert.equal(input.directory, "/tmp");
 });
+
+
+test("MacBook prevents persistent approvals while permitting once/reject", () => {
+  const approvalID = "0469e80a-71ff-4565-8195-4a313acbb6af";
+  const sessionID = "7c95c1b7-af1b-4df9-bacc-21b76a2bf69e";
+  const make = (decision) => ({ command_type: "approval_decision", session_id: sessionID,
+    payload: { approval_id: approvalID, decision } });
+  const mac = { bridgeHostId: "macbook-01" };
+  assert.throws(() => validateCommand(make("always"), mac), /Persistent approvals/);
+  assert.equal(validateCommand(make("once"), mac).decision, "once");
+  assert.equal(validateCommand(make("reject"), mac).decision, "reject");
+  assert.equal(validateCommand(make("always"),
+    { bridgeHostId: "silicon-valley-01" }).decision, "always");
+});
