@@ -7,7 +7,7 @@ const commandID = "7324cb59-f558-4962-b112-7dfe1ce2b051";
 
 function harness() {
   let session = { id: sessionID, title: "Demo", workspace_key: "demo", kilo_session_id: "ses_demo",
-    directory: "/opt/project", status: "ready", current_command_id: null };
+    directory: process.cwd(), status: "ready", current_command_id: null };
   let command = { id: commandID, session_id: sessionID, status: "claimed", payload: { text: "Fix bug" }, result: {} };
   let messages = [];
   let status = { ses_demo: { type: "busy" } };
@@ -31,7 +31,7 @@ function harness() {
     async promptAsync(...args) { calls.push({ prompt: args }); }
   };
   const logger = { info() {}, warn() {}, error() {} };
-  const bridge = new Bridge({ defaultDirectory: "/home/ubuntu", kiloModel: "nvidia/nemotron-3.5-super-vl:free" }, store, kilo, logger);
+  const bridge = new Bridge({ defaultDirectory: process.cwd(), bridgeHostId: "macbook-01", kiloModel: "nvidia/nemotron-3.5-super-vl:free" }, store, kilo, logger);
   return { bridge, calls, getSession: () => session, getCommand: () => command,
     setMessages: (value) => { messages = value; }, setStatus: (value) => { status = value; },
     setPermissions: (value) => { permissions = value; } };
@@ -41,7 +41,14 @@ test("creates sessions directly in any absolute directory", async () => {
   const h = harness();
   await h.bridge.createSession({ id: commandID }, { workspaceKey: "host", directory: "/", title: "Root session" });
   assert.equal(h.getSession().directory, "/");
+  assert.equal(h.getSession().host_id, "macbook-01");
   assert.equal(h.getCommand().status, "succeeded");
+});
+
+test("a command for another host fails closed", async () => {
+  const h = harness();
+  await h.bridge.execute({ id: commandID, command_type: "health_check", target_host: "silicon-valley-01", payload: {} });
+  assert.equal(h.getCommand().status, "failed");
 });
 
 test("prompt_async does not synchronously complete the task", async () => {

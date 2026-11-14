@@ -13,6 +13,7 @@ export function createStore(config, logger) {
   });
   // coord is deliberately private. Service-role-only public security-invoker views/RPC.
   const db = client.schema("public");
+  const hostId = config.bridgeHostId;
   return {
     subscribe(wake) {
       return client.channel("kilo-bridge-commands")
@@ -27,36 +28,37 @@ export function createStore(config, logger) {
       client.realtime.disconnect();
     },
     async claim(worker, lease) {
-      const data = checked(await db.rpc("kilo_claim_next_command", { p_worker_id: worker, p_lease_seconds: lease }), "claim");
+      const data = checked(await db.rpc("kilo_claim_host_command", { p_host_id: hostId, p_worker_id: worker, p_lease_seconds: lease }), "claim");
       return Array.isArray(data) ? data[0] || null : data;
     },
     async createSession(values) {
       return checked(await db.from("kilo_sessions").insert(values).select("*").single(), "createSession");
     },
     async session(id) {
-      return checked(await db.from("kilo_sessions").select("*").eq("id", id).maybeSingle(), "session");
+      return checked(await db.from("kilo_sessions").select("*").eq("id", id).eq("host_id", hostId).maybeSingle(), "session");
     },
     async sessionsActive() {
       return checked(await db.from("kilo_sessions").select("*")
         .in("status", ["running", "awaiting_approval", "needs_reconciliation"])
-        .limit(100), "sessionsActive") || [];
+        .eq("host_id", hostId).limit(100), "sessionsActive") || [];
     },
     async updateSession(id, values) {
       return checked(await db.from("kilo_sessions").update({ ...values, updated_at: new Date().toISOString() })
-        .eq("id", id).select("*").single(), "updateSession");
+        .eq("id", id).eq("host_id", hostId).select("*").single(), "updateSession");
     },
     async updateCommand(id, values) {
       return checked(await db.from("kilo_commands").update({ ...values, updated_at: new Date().toISOString() })
-        .eq("id", id).select("*").single(), "updateCommand");
+        .eq("id", id).eq("target_host", hostId).select("*").single(), "updateCommand");
     },
     async command(id) {
-      return checked(await db.from("kilo_commands").select("*").eq("id", id).maybeSingle(), "command");
+      return checked(await db.from("kilo_commands").select("*").eq("id", id).eq("target_host", hostId).maybeSingle(), "command");
     },
     async expiredClaims() {
       return checked(await db.from("kilo_commands").update({ status: "needs_reconciliation",
         error: { name: "LeaseExpired", message: "Claim state is uncertain; do not replay" },
         finished_at: new Date().toISOString() })
-        .eq("status", "claimed").lt("lease_expires_at", new Date().toISOString()).select("*"), "expiredClaims") || [];
+        .eq("status", "claimed").eq("target_host", hostId)
+        .lt("lease_expires_at", new Date().toISOString()).select("*"), "expiredClaims") || [];
     },
     async event(values) { checked(await db.from("kilo_events").insert(values), "event"); },
     async upsertApproval(values) {

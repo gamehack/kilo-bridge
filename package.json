@@ -6,7 +6,7 @@
   "engines": { "node": ">=24" },
   "scripts": {
     "start": "node src/index.js",
-    "check": "node --check src/index.js && node --check src/bridge.js && node --check src/kilo-client.js && node --check src/store.js && node --check src/config.js",
+    "check": "node --check src/index.js && node --check src/bridge.js && node --check src/kilo-client.js && node --check src/store.js && node --check src/broker-store.js && node --check src/config.js && node --check scripts/macbook-worker.js && node --check scripts/render-macos-daemons.js && node --check src/macos-launchd.js && bash -n scripts/install-macos-daemons.sh",
     "test": "node --test"
   },
   "dependencies": { "@supabase/supabase-js": "2.57.4" },

@@ -2,13 +2,15 @@ import { Bridge } from "./bridge.js";
 import { KiloClient } from "./kilo-client.js";
 import { loadConfig } from "./config.js";
 import { createStore } from "./store.js";
+import { createBrokerStore } from "./broker-store.js";
 import { createLogger } from "./log.js";
 import { errorObject } from "./commands.js";
 
 async function main() {
   const config = loadConfig();
   const logger = createLogger(config.logLevel);
-  const bridge = new Bridge(config, createStore(config, logger), new KiloClient(config), logger);
+  const store = config.brokerUrl ? createBrokerStore(config) : createStore(config, logger);
+  const bridge = new Bridge(config, store, new KiloClient(config), logger);
   let stopping = false;
   const stop = (signal) => {
     if (stopping) return;

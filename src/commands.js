@@ -1,6 +1,31 @@
 import path from "node:path";
+import { realpathSync, statSync } from "node:fs";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// A session path is a routing safety check, not an OS sandbox. Kilo still runs
+// with the privileges of the local account. Mac test mode requires an existing
+// directory physically beneath the configured workspace root (no symlink escape).
+export function assertHostDirectory(directory, config) {
+  if (typeof directory !== "string" || !path.isAbsolute(directory)
+    || directory.includes("\\0") || directory.length > 4096) {
+    throw new Error("Session directory must be an absolute filesystem path");
+  }
+  const resolved = path.resolve(directory);
+  if (config.bridgeHostId !== "macbook-01") return resolved;
+  let root, target;
+  try {
+    root = realpathSync(config.defaultDirectory);
+    target = realpathSync(resolved);
+    if (!statSync(target).isDirectory()) throw new Error("not a directory");
+  } catch {
+    throw new Error("MacBook session directory must already exist as a directory");
+  }
+  if (target !== root && !target.startsWith(root + path.sep)) {
+    throw new Error("MacBook session directory escapes the approved workspace");
+  }
+  return target;
+}
 
 export function validateCommand(command, config) {
   const payload = command?.payload;
@@ -19,7 +44,7 @@ export function validateCommand(command, config) {
         throw new Error("Invalid workspace label");
       }
       // workspace_key is an informational label, not an access-control list.
-      return { workspaceKey, directory: path.resolve(requestedDirectory), title };
+      return { workspaceKey, directory: assertHostDirectory(requestedDirectory, config), title };
     }
     case "start_turn": {
       if (!UUID_RE.test(command.session_id || "")) throw new Error("Invalid session_id");
@@ -34,6 +59,9 @@ export function validateCommand(command, config) {
     case "approval_decision":
       if (!UUID_RE.test(command.session_id || "") || !UUID_RE.test(payload.approval_id || "")) throw new Error("Invalid approval reference");
       if (!["once", "always", "reject"].includes(payload.decision)) throw new Error("Invalid approval decision");
+      if (config.bridgeHostId === "macbook-01" && payload.decision === "always") {
+        throw new Error("Persistent approvals are disabled for MacBook test worker");
+      }
       return { approvalId: payload.approval_id, decision: payload.decision };
     case "health_check": return {};
     default: throw new Error("Unsupported command type");

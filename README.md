@@ -25,6 +25,14 @@ No dependency on `codex-bridge`, Slack, OpenClaw, a public listening port, or a 
 - Arbitrary absolute session directories, without a Bridge workspace allowlist
 - Separate Supabase tables and service-role-only views
 
+## Multi-host staging (MacBook)
+
+A staged host-affinity design is available in [docs/multi-host-macbook.md](docs/multi-host-macbook.md).
+It requires a **reviewed migration before** starting a second Worker. Legacy work stays on
+`silicon-valley-01`; new Workers use `BRIDGE_HOST_ID` to claim host-targeted commands.
+Do not put the production Supabase service-role credential on a legacy laptop; a
+host-scoped broker credential is still required for safe unattended operation.
+
 ## Requirements
 
 - Node.js 24+, Kilo CLI version providing `kilo serve` and `prompt_async`
