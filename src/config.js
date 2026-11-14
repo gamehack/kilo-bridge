@@ -19,8 +19,8 @@ export function loadConfig(env = process.env) {
   if (brokerUrl && (!env.KILO_BROKER_TOKEN || env.KILO_BROKER_TOKEN.length < 40)) {
     throw new Error("KILO_BROKER_TOKEN must contain a high-entropy secret");
   }
-  if (brokerUrl && env.BRIDGE_HOST_ID !== "macbook-01") {
-    throw new Error("Broker mode currently supports only BRIDGE_HOST_ID=macbook-01");
+  if (brokerUrl && !["macbook-01", "macbook-02"].includes(env.BRIDGE_HOST_ID)) {
+    throw new Error("Broker mode supports only registered macOS host IDs");
   }
   if (brokerUrl && env.SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error("Broker worker must not carry a Supabase service-role secret");

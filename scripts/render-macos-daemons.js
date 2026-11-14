@@ -9,7 +9,8 @@ if (![outDir,nodeBin,kiloBin,home,repo,group,logDir].every(Boolean))
 if (process.getuid?.()===0) throw Error("Render plists as the unprivileged user");
 mkdirSync(outDir,{recursive:true,mode:0o700});
 const plists=renderDaemonPlists({
-  user:process.env.USER,group,home,repo,nodeBin,kiloBin,logDir
+  user:process.env.USER,group,home,repo,nodeBin,kiloBin,logDir,
+  hostId:process.env.MACBOOK_WORKER_HOST_ID || "macbook-01"
 });
 for(const [name,data] of Object.entries(plists)){
   const filename=path.join(outDir,`${name}.plist`);

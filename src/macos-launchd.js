@@ -4,6 +4,12 @@ import path from "node:path";
 export const LABEL_KILO = "org.primalflow.kilo-server";
 export const LABEL_BRIDGE = "org.primalflow.kilo-bridge";
 export const BROKER_URL = "https://xnndeqrduxkdlwcdklbc.supabase.co/functions/v1/kilo-host-broker";
+export const BROKER_URL_MB2 = "https://xnndeqrduxkdlwcdklbc.supabase.co/functions/v1/kilo-host-broker-mb2";
+
+const MAC_HOSTS = Object.freeze({
+  "macbook-01": { user: "gamehack", home: "/Users/gamehack", brokerUrl: BROKER_URL },
+  "macbook-02": { user: "username", home: "/Users/username", brokerUrl: BROKER_URL_MB2 }
+});
 
 function xml(value) {
   return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;")
@@ -25,20 +31,22 @@ function plist(fields) {
     ...Object.entries(fields).map(([key,value]) => item(key,value)),
     '</dict>','</plist>',''].join("\n");
 }
-export function renderDaemonPlists({ user, group, home, repo, nodeBin, kiloBin, logDir }) {
+export function renderDaemonPlists({ user, group, home, repo, nodeBin, kiloBin, logDir, hostId = "macbook-01" }) {
   if (![home, repo, nodeBin, kiloBin, logDir].every(p => typeof p === "string" && path.isAbsolute(p) && !p.includes("\0")))
     throw new Error("All daemon filesystem paths must be absolute and nonempty");
   if (!/^[a-z][a-z0-9_-]*$/.test(user) || !/^[a-z][a-z0-9_-]*$/.test(group))
     throw new Error("Invalid daemon user/group");
-  if (user !== "gamehack" || home !== "/Users/gamehack" ||
-      repo !== "/Users/gamehack/kilo-workspaces/kilo-bridge")
-    throw new Error("MacBook services are pinned to the approved test machine and workspace");
+  const host = MAC_HOSTS[hostId];
+  if (!host || user !== host.user || home !== host.home ||
+      repo !== path.join(home, "kilo-workspaces", "kilo-bridge"))
+    throw new Error("MacBook services are pinned to a registered user, host and workspace");
   const env = {
     HOME:home, USER:user, LOGNAME:user, SHELL:"/bin/zsh",
     PATH:[path.dirname(nodeBin),path.dirname(kiloBin),"/usr/local/bin","/usr/bin","/bin","/usr/sbin","/sbin"].join(":"),
     XDG_CONFIG_HOME:path.join(home,".config"),
     XDG_DATA_HOME:path.join(home,".local/share"),
-    XDG_CACHE_HOME:path.join(home,".cache")
+    XDG_CACHE_HOME:path.join(home,".cache"),
+    ...(hostId === "macbook-02" ? { MACBOOK_WORKER_HOST_ID: hostId } : {})
   };
   const base = {
     UserName:user, GroupName:group, RunAtLoad:true, KeepAlive:true,
@@ -54,7 +62,7 @@ export function renderDaemonPlists({ user, group, home, repo, nodeBin, kiloBin, 
     }),
     [LABEL_BRIDGE]:plist({
       Label:LABEL_BRIDGE, ...base,
-      ProgramArguments:[nodeBin,path.join(repo,"scripts/macbook-worker.js"),"service",BROKER_URL],
+      ProgramArguments:[nodeBin,path.join(repo,"scripts/macbook-worker.js"),"service",host.brokerUrl],
       StandardOutPath:path.join(logDir,"kilo-bridge.stdout.log"),
       StandardErrorPath:path.join(logDir,"kilo-bridge.stderr.log")
     })
