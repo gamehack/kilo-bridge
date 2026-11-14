@@ -4,7 +4,8 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
 const HOST = "macbook-01";
 const ROOT = "/Users/gamehack/kilo-workspaces";
-const expectedToken = Deno.env.get("MACBOOK_WORKER_TOKEN") || "";
+// The CLI reads its token file with trim(). Dashboard pastes may preserve a trailing newline.
+const expectedToken = (Deno.env.get("MACBOOK_WORKER_TOKEN") || "").trim();
 const url = Deno.env.get("SUPABASE_URL") || "";
 const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const database = createClient(url, key, {
@@ -135,8 +136,13 @@ async function dispatch(action: string, args: Record<string, unknown>) {
 Deno.serve(async (request) => {
   if (request.method !== "POST") return new Response("not found", { status: 404 });
   const header = request.headers.get("authorization") || "";
-  if (!(await authorized(header.startsWith("Bearer ") ? header.slice(7) : "")))
+  if (!(await authorized(header.startsWith("Bearer ") ? header.slice(7) : ""))) {
+    // Log diagnostic categories only: never write the secret, its hash, or the request header.
+    const secretStatus = !expectedToken ? "missing"
+      : !/^[a-fA-F0-9]{64}$/.test(expectedToken) ? "invalid_format" : "mismatch";
+    console.warn("kilo-host-broker.auth_rejected", { secret_status: secretStatus });
     return new Response("unauthorized", { status: 401 });
+  }
   try {
     if (Number(request.headers.get("content-length") || "0") > 131072)
       return new Response("request too large", { status: 413 });
