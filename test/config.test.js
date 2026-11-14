@@ -74,7 +74,7 @@ test("macbook-02 enforces workspace realpath and disallows permanent approvals",
     fs.symlinkSync(os.tmpdir(), path.join(root, "escape"));
     const config = loadConfig(env({ BRIDGE_HOST_ID:"macbook-02", KILO_DEFAULT_DIRECTORY:root }));
     const command = directory => ({ command_type:"create_session", payload:{ directory } });
-    assert.equal(validateCommand(command(path.join(root, "allowed")), config).directory, path.join(root, "allowed"));
+    assert.equal(validateCommand(command(path.join(root, "allowed")), config).directory, fs.realpathSync(path.join(root, "allowed")));
     assert.throws(() => validateCommand(command(path.join(root,"escape")), config), /escapes the approved workspace/);
     assert.throws(() => validateCommand(command(os.tmpdir()), config), /escapes the approved workspace/);
     assert.throws(() => validateCommand({
