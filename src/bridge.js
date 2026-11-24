@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { errorObject, validateCommand } from "./commands.js";
 import { evaluateApproval, validateApprovalGrants } from "./approval-policy.js";
 
@@ -84,6 +85,8 @@ export class Bridge {
 
   async execute(command) {
     try {
+      const hostId = this.config.bridgeHostId || "silicon-valley-01";
+      if (command.target_host !== hostId) throw new Error("Command host mismatch");
       const input = validateCommand(command, this.config);
       switch (command.command_type) {
         case "create_session": return await this.createSession(command, input);
@@ -105,7 +108,7 @@ export class Bridge {
   }
 
   async createSession(command, { workspaceKey, directory, title }) {
-    const session = await this.store.createSession({ workspace_key: workspaceKey, directory, title, status: "creating" });
+    const session = await this.store.createSession({ workspace_key: workspaceKey, directory, title, host_id: this.config.bridgeHostId || "silicon-valley-01", status: "creating" });
     await this.store.updateCommand(command.id, { session_id: session.id });
     command.session_id = session.id;
     command.dispatched = true;
@@ -125,11 +128,22 @@ export class Bridge {
     if (!directory) throw new Error("Session directory is missing");
     const messages = await this.kilo.messages(directory, session.kilo_session_id);
     if (!Array.isArray(messages)) throw new Error("Kilo messages response was not an array");
-    const result = { message_count_before: messages.length,
-      last_message_id_before: messages.at(-1)?.info?.id || null, kilo_session_id: session.kilo_session_id,
-      model: this.config.kiloModel };
+    const startedAt = now();
+    const approvalMode = this.config.approvalMode || "manual";
+    const result = {
+      message_count_before: messages.length,
+      last_message_id_before: messages.at(-1)?.info?.id || null,
+      kilo_session_id: session.kilo_session_id,
+      model: this.config.kiloModel,
+      approval_mode: approvalMode,
+      approval_policy_version: 2,
+      approval_policy_host_id: this.config.bridgeHostId || "silicon-valley-01",
+      approval_policy_started_at: startedAt
+    };
     await this.store.updateSession(session.id, { status: "running", current_command_id: command.id });
-    await this.store.updateCommand(command.id, { status: "running", started_at: now(), lease_expires_at: null, result });
+    await this.store.updateCommand(command.id, {
+      status: "running", started_at: startedAt, lease_expires_at: null, result
+    });
     command.dispatched = true;
     await this.kilo.promptAsync(directory, session.kilo_session_id, text, this.config.kiloModel);
     await this.store.event({ command_id: command.id, session_id: session.id,
@@ -151,55 +165,171 @@ export class Bridge {
   }
 
   async decideApproval(command, { approvalId, decision }) {
-    const approval = await this.store.approval(approvalId);
-    if (!approval || approval.session_id !== command.session_id || approval.status !== "pending") {
+    const approval = await this.store.approval(approvalId, command.session_id);
+    if (!approval || approval.status !== "pending") {
       throw new Error("Approval is not pending in this session");
     }
     const session = await this.store.session(approval.session_id);
+    if (!session?.kilo_session_id) throw new Error("Approval session is unavailable on this host");
+    const claim = {
+      claimId: randomUUID(), kind: "manual", decision, reason: "operator_decision",
+      claimedAt: now(), resolverCommandId: command.id
+    };
+    const claimed = await this.store.claimApproval(approval, claim);
+    if (!claimed) {
+      const latest = await this.store.approval(approvalId, session.id);
+      if (latest) await this.handleExistingApprovalClaim(session, latest, command.id, [command.id]);
+      throw new Error("Approval is already being resolved or requires reconciliation");
+    }
     command.dispatched = true;
-    await this.kilo.replyPermission(session.directory, approval.kilo_request_id, decision);
-    await this.store.updateApproval(approval.id, { status: decision === "reject" ? "rejected" : "approved",
-      decision, resolved_at: now() });
-    await this.store.updateSession(session.id, { status: "running" });
-    if (session.current_command_id) await this.store.updateCommand(session.current_command_id, { status: "running" });
-    await this.finish(command, "succeeded", { approval_id: approval.id, decision });
+    try {
+      await this.store.event({ command_id: command.id, session_id: session.id,
+        event_type: "approval.manual_intent", payload: { approval_id: approval.id,
+          decision, claim_id: claim.claimId } });
+      await this.kilo.replyPermission(session.directory, approval.kilo_request_id, decision);
+      await this.store.updateApproval(approval.id, session.id, {
+        status: decision === "reject" ? "rejected" : "approved", decision, resolved_at: now()
+      });
+      await this.store.updateSession(session.id, { status: "running" });
+      if (session.current_command_id) {
+        await this.store.updateCommand(session.current_command_id, { status: "running" });
+      }
+      await this.store.event({ command_id: command.id, session_id: session.id,
+        event_type: "approval.manual_decision", payload: { approval_id: approval.id,
+          decision, claim_id: claim.claimId } });
+      await this.finish(command, "succeeded", { approval_id: approval.id, decision });
+    } catch (error) {
+      await this.markApprovalNeedsReconciliation(session, approval, claim, error, [command.id]);
+    }
+  }
+
+  async handleExistingApprovalClaim(session, approval, fallbackCommandId, extraCommandIds = []) {
+    const detail = approval.detail && typeof approval.detail === "object" ? approval.detail : {};
+    const claimId = detail._bridge_resolution_claim_id;
+    if (!claimId) return false;
+    const claim = {
+      claimId,
+      kind: detail._bridge_resolution_kind || "auto",
+      decision: detail._bridge_resolution_decision || null,
+      reason: detail._bridge_resolution_reason || "previous_resolution",
+      claimedAt: detail._bridge_resolution_claimed_at || null,
+      resolverCommandId: detail._bridge_resolution_command_id || fallbackCommandId || session.current_command_id
+    };
+    if (["approved", "rejected"].includes(approval.status)) {
+      let audited = false;
+      try {
+        audited = await this.store.approvalDecisionEvent(
+          claim.resolverCommandId, approval.id, "approval." + claim.kind + "_decision"
+        );
+      } catch {}
+      if (audited) return true;
+      await this.markApprovalNeedsReconciliation(session, approval, claim,
+        new Error("Final approval audit event is missing"), extraCommandIds, "final_audit_missing");
+      return true;
+    }
+    if (approval.status === "pending") {
+      const claimedAt = Date.parse(claim.claimedAt || "");
+      if (Number.isFinite(claimedAt) && Date.now() - claimedAt < 120000) return true;
+      await this.markApprovalNeedsReconciliation(session, approval, claim,
+        new Error("Approval resolution claim is stale"), extraCommandIds, "stale_claim");
+      return true;
+    }
+    if (approval.status === "orphaned") {
+      await this.markApprovalNeedsReconciliation(session, approval, claim,
+        new Error("Approval was orphaned while a resolution claim exists"), extraCommandIds, "orphaned_claim");
+      return true;
+    }
+    return false;
+  }
+
+  async markApprovalNeedsReconciliation(session, approval, claim, error, extraCommandIds = [], phase = "reply_or_audit") {
+    const patch = {
+      status: "needs_reconciliation",
+      error: { name: "ApprovalReplyUncertain",
+        message: "Permission reply or audit persistence is uncertain; manual reconciliation required" },
+      finished_at: now(),
+      lease_expires_at: null
+    };
+    const commandIds = new Set([
+      session.current_command_id,
+      claim?.resolverCommandId,
+      ...extraCommandIds
+    ].filter(Boolean));
+    const operations = [
+      ...[...commandIds].map((id) => this.store.updateCommand(id, patch)),
+      this.store.updateSession(session.id, { status: "needs_reconciliation" }),
+      this.store.event({
+        command_id: claim?.resolverCommandId || session.current_command_id || null,
+        session_id: session.id,
+        event_type: "approval.needs_reconciliation",
+        payload: { approval_id: approval.id, claim_id: claim?.claimId || null, phase }
+      })
+    ];
+    const results = await Promise.allSettled(operations);
+    results.forEach((result, index) => {
+      if (result.status === "rejected") this.logger.error("approval.reconciliation_persist_failed", {
+        session_id: session.id, approval_id: approval.id, operation_index: index,
+        error: errorObject(result.reason)
+      });
+    });
+    this.logger.error("approval.needs_reconciliation", {
+      session_id: session.id, approval_id: approval.id, phase, error: errorObject(error)
+    });
   }
 
   async resolveAutomaticApproval(session, command, request) {
-    const approval = await this.store.approvalForRequest(request.id);
-    if (!approval || approval.session_id !== session.id || approval.command_id !== command.id ||
-      approval.status !== "pending") return;
+    const mode = this.config.approvalMode || "manual";
+    const hostId = this.config.bridgeHostId || "silicon-valley-01";
+    // Existing turns are deliberately never migrated into auto mode. Only a turn
+    // started by V2 while auto was enabled can have its permissions auto-resolved.
+    if (!["auto", "full_auto"].includes(mode) ||
+        command.result?.approval_mode !== mode ||
+        command.result?.approval_policy_version !== 2 ||
+        command.result?.approval_policy_host_id !== hostId ||
+        (mode === "full_auto" && this.config.approvalIsolated !== true)) return;
+
+    const approval = await this.store.approvalForRequest(request.id, session.id, command.id);
+    if (!approval) return;
+    const startedAt = Date.parse(command.started_at || command.result.approval_policy_started_at || "");
+    const approvalCreatedAt = Date.parse(approval.created_at || "");
+    if (!Number.isFinite(startedAt) || !Number.isFinite(approvalCreatedAt) || approvalCreatedAt < startedAt) return;
+
+    if (approval.status !== "pending") {
+      await this.handleExistingApprovalClaim(session, approval, command.id);
+      return;
+    }
+    if (await this.handleExistingApprovalClaim(session, approval, command.id)) return;
+
     const grants = validateApprovalGrants(command.payload?.approval_grants);
     const policy = evaluateApproval(request, this.config, grants, approval.created_at);
     if (!policy.decision) return;
-    if (await this.store.approvalIntent(command.id, approval.id)) {
-      await this.store.updateCommand(command.id, { status: "needs_reconciliation",
-        error: { name: "ApprovalReplyUncertain", message: "Prior automatic reply intent remains unresolved" },
-        finished_at: now(), lease_expires_at: null });
-      await this.store.updateSession(session.id, { status: "needs_reconciliation" });
-      throw new Error("Prior automatic permission reply requires reconciliation");
+    const claim = {
+      claimId: randomUUID(), kind: "auto", decision: policy.decision, reason: policy.reason,
+      claimedAt: now(), resolverCommandId: command.id
+    };
+    const claimed = await this.store.claimApproval(approval, claim);
+    if (!claimed) {
+      const latest = await this.store.approvalForRequest(request.id, session.id, command.id);
+      if (latest) await this.handleExistingApprovalClaim(session, latest, command.id);
+      return;
     }
-    // Persist intent before the external side effect; do not silently replay
-    // ambiguous permission replies following a crash or transport failure.
-    await this.store.event({ command_id: command.id, session_id: session.id,
-      event_type: "approval.auto_intent", payload: { approval_id: approval.id,
-        decision: policy.decision, reason: policy.reason } });
+
     try {
-      await this.kilo.replyPermission(session.directory, request.id, policy.decision);
-      await this.store.updateApproval(approval.id, { status: policy.decision === "reject" ? "rejected" : "approved",
-        decision: policy.decision, resolved_at: now() });
-    } catch (error) {
-      await this.store.updateCommand(command.id, { status: "needs_reconciliation",
-        error: { name: "ApprovalReplyUncertain", message: "Automatic permission reply could not be confirmed" },
-        finished_at: now(), lease_expires_at: null });
-      await this.store.updateSession(session.id, { status: "needs_reconciliation" });
       await this.store.event({ command_id: command.id, session_id: session.id,
-        event_type: "approval.auto_uncertain", payload: { approval_id: approval.id, reason: policy.reason } });
-      throw error;
+        event_type: "approval.auto_intent", payload: { approval_id: approval.id,
+          decision: policy.decision, reason: policy.reason, claim_id: claim.claimId } });
+      await this.kilo.replyPermission(session.directory, request.id, policy.decision);
+      await this.store.updateApproval(approval.id, session.id, {
+        status: policy.decision === "reject" ? "rejected" : "approved",
+        decision: policy.decision, resolved_at: now()
+      });
+      await this.store.event({ command_id: command.id, session_id: session.id,
+        event_type: "approval.auto_decision", payload: { approval_id: approval.id,
+          decision: policy.decision, reason: policy.reason, claim_id: claim.claimId } });
+    } catch (error) {
+      await this.markApprovalNeedsReconciliation(session, approval, claim, error, [],
+        error?.message === "event: audit unavailable" ? "decision_audit_failed" : "reply_or_persist_failed");
     }
-    await this.store.event({ command_id: command.id, session_id: session.id,
-      event_type: "approval.auto_decision", payload: { approval_id: approval.id,
-        decision: policy.decision, reason: policy.reason } });
   }
 
   async health(command) {
