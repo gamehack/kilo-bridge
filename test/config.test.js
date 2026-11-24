@@ -11,6 +11,12 @@ test("accepts fixed free model and loopback Kilo server", () => {
   const config = loadConfig(env());
   assert.equal(config.kiloModel, "nvidia/nemotron-3.5-super-vl:free");
   assert.equal(config.kiloServerUrl, "http://127.0.0.1:4096");
+  assert.equal(config.bridgeHostId, "silicon-valley-01");
+});
+test("pins a valid bridge host identity", () => {
+  assert.equal(loadConfig(env({ BRIDGE_HOST_ID: "macbook-01" })).bridgeHostId, "macbook-01");
+  assert.throws(() => loadConfig(env({ BRIDGE_HOST_ID: "../../other" })), /Invalid BRIDGE_HOST_ID/);
+  assert.throws(() => loadConfig(env({ BRIDGE_HOST_ID: "MACBOOK" })), /Invalid BRIDGE_HOST_ID/);
 });
 test("rejects paid/auto models", () => {
   assert.throws(() => loadConfig(env({ KILO_MODEL: "kilo-auto/free" })), /pinned/);
