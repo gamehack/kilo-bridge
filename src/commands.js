@@ -1,4 +1,5 @@
 import path from "node:path";
+import { validateApprovalGrants } from "./approval-policy.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -26,7 +27,7 @@ export function validateCommand(command, config) {
       if (typeof payload.text !== "string" || !payload.text.trim() || payload.text.length > 40000) {
         throw new Error("Invalid task text");
       }
-      return { text: payload.text };
+      return { text: payload.text, approvalGrants: validateApprovalGrants(payload.approval_grants) };
     }
     case "interrupt_turn":
       if (!UUID_RE.test(command.session_id || "")) throw new Error("Invalid session_id");
