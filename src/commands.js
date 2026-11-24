@@ -27,7 +27,8 @@ export function validateCommand(command, config) {
       if (typeof payload.text !== "string" || !payload.text.trim() || payload.text.length > 40000) {
         throw new Error("Invalid task text");
       }
-      return { text: payload.text, approvalGrants: validateApprovalGrants(payload.approval_grants) };
+      validateApprovalGrants(payload.approval_grants);
+      return { text: payload.text };
     }
     case "interrupt_turn":
       if (!UUID_RE.test(command.session_id || "")) throw new Error("Invalid session_id");
