@@ -1,4 +1,5 @@
 import { errorObject, validateCommand } from "./commands.js";
+import { evaluateApproval, validateApprovalGrants } from "./approval-policy.js";
 
 const now = () => new Date().toISOString();
 const isTerminal = (status) => ["succeeded", "failed", "cancelled", "needs_reconciliation"].includes(status);
@@ -164,10 +165,41 @@ export class Bridge {
     await this.finish(command, "succeeded", { approval_id: approval.id, decision });
   }
 
+  async resolveAutomaticApproval(session, command, request) {
+    const approval = await this.store.approvalForRequest(request.id);
+    if (!approval || approval.session_id !== session.id || approval.command_id !== command.id ||
+      approval.status !== "pending") return;
+    const grants = validateApprovalGrants(command.payload?.approval_grants);
+    const policy = evaluateApproval(request, this.config, grants, approval.created_at);
+    if (!policy.decision) return;
+    // Persist intent before the external side effect; do not silently replay
+    // ambiguous permission replies following a crash or transport failure.
+    await this.store.event({ command_id: command.id, session_id: session.id,
+      event_type: "approval.auto_intent", payload: { approval_id: approval.id,
+        decision: policy.decision, reason: policy.reason } });
+    try {
+      await this.kilo.replyPermission(session.directory, request.id, policy.decision);
+      await this.store.updateApproval(approval.id, { status: policy.decision === "reject" ? "rejected" : "approved",
+        decision: policy.decision, resolved_at: now() });
+    } catch (error) {
+      await this.store.updateCommand(command.id, { status: "needs_reconciliation",
+        error: { name: "ApprovalReplyUncertain", message: "Automatic permission reply could not be confirmed" },
+        finished_at: now(), lease_expires_at: null });
+      await this.store.updateSession(session.id, { status: "needs_reconciliation" });
+      await this.store.event({ command_id: command.id, session_id: session.id,
+        event_type: "approval.auto_uncertain", payload: { approval_id: approval.id, reason: policy.reason } });
+      throw error;
+    }
+    await this.store.event({ command_id: command.id, session_id: session.id,
+      event_type: "approval.auto_decision", payload: { approval_id: approval.id,
+        decision: policy.decision, reason: policy.reason } });
+  }
+
   async health(command) {
     const response = await this.kilo.health();
     await this.finish(command, "succeeded", { kilo_connected: true, kilo_health: response,
-      model: this.config.kiloModel });
+      model: this.config.kiloModel, approval_mode: this.config.approvalMode || "manual",
+      approval_timeout_seconds: this.config.approvalTimeoutSeconds || 60 });
   }
 
   async finish(command, status, result) {
@@ -195,6 +227,9 @@ export class Bridge {
         await this.store.updateCommand(command.id, { status: "awaiting_approval" });
         await this.store.event({ command_id: command.id, session_id: session.id,
           event_type: "approval.requested", payload: { count: pending.length } });
+      }
+      if ((this.config.approvalMode || "manual") !== "manual") {
+        for (const request of pending) await this.resolveAutomaticApproval(session, command, request);
       }
       return;
     }
@@ -224,6 +259,20 @@ export class Bridge {
     const assistant = Array.isArray(messages) ? lastAssistant(messages, command) : null;
     if (!assistant || !assistant.info?.time?.completed) return; // Avoid declaring success on an empty idle observation.
     const failed = Boolean(assistant.info.error);
+    // An idle, completed tool-call message is not a final assistant answer.
+    // Give Kilo a short grace interval to emit its continuation.
+    if (!failed && (assistant.info.finish === "tool-calls" || !finalText(assistant).trim())) {
+      const completed = Number(assistant.info.time.completed);
+      if (!Number.isFinite(completed) || Date.now() - completed < 30000) return;
+      await this.store.updateCommand(command.id, { status: "needs_reconciliation",
+        result: { ...command.result, assistant_message_id: assistant.info.id, finish: assistant.info.finish || null },
+        error: { name: "IncompleteTurn", message: "Kilo went idle without a final assistant answer" },
+        finished_at: now(), lease_expires_at: null });
+      await this.store.updateSession(session.id, { status: "needs_reconciliation" });
+      await this.store.event({ command_id: command.id, session_id: session.id,
+        event_type: "turn.incomplete", payload: {} });
+      return;
+    }
     const result = { ...command.result, final_message: finalText(assistant),
       assistant_message_id: assistant.info.id, finish: assistant.info.finish || null };
     await this.store.updateCommand(command.id, { status: failed ? "failed" : "succeeded", result,
