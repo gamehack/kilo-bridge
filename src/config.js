@@ -27,7 +27,14 @@ export function loadConfig(env = process.env) {
     throw new Error("KILO_MODEL is pinned to nvidia/nemotron-3.5-super-vl:free for the MVP");
   }
 
+  const autoApprove = env.BRIDGE_AUTO_APPROVE ?? "false";
+  if (!["true", "false"].includes(autoApprove)) throw new Error("BRIDGE_AUTO_APPROVE must be true or false");
+  const bridgeHostId = env.BRIDGE_HOST_ID || null;
+  if (bridgeHostId && !/^[a-z][a-z0-9_-]{1,63}$/.test(bridgeHostId)) throw new Error("Invalid BRIDGE_HOST_ID");
+  if (autoApprove === "true" && !bridgeHostId) throw new Error("Auto approval requires BRIDGE_HOST_ID");
   return {
+    autoApprove: autoApprove === "true",
+    bridgeHostId,
     supabaseUrl: supabaseUrl.origin,
     supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
     kiloServerUrl: kiloUrl.origin,
