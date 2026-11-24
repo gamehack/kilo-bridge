@@ -103,10 +103,11 @@ test("creates sessions directly in any absolute directory and binds host identit
   assert.equal(h.getCommand().status, "succeeded");
 });
 
-test("rejects a command assigned to another host", async () => {
+test("ignores a command assigned to another host without mutating it", async () => {
   const h = harness();
   await h.bridge.execute({ id: commandID, target_host: "macbook-01", command_type: "health_check", payload: {} });
-  assert.equal(h.getCommand().status, "failed");
+  assert.equal(h.getCommand().status, "claimed");
+  assert.equal(h.calls.some((event) => event.event_type === "command.failed"), false);
 });
 
 test("prompt_async does not synchronously complete the task and records approval policy epoch", async () => {
