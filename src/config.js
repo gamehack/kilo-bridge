@@ -27,7 +27,13 @@ export function loadConfig(env = process.env) {
     throw new Error("KILO_MODEL is pinned to nvidia/nemotron-3.5-super-vl:free for the MVP");
   }
 
+  const approvalMode = env.BRIDGE_APPROVAL_MODE || "manual";
+  if (!["manual", "auto", "full_auto"].includes(approvalMode)) throw new Error("Invalid BRIDGE_APPROVAL_MODE");
+  const approvalIsolated = env.BRIDGE_APPROVAL_ISOLATED === "true";
+  if (approvalMode === "full_auto" && !approvalIsolated) throw new Error("full_auto requires an isolated worker");
   return {
+    approvalMode, approvalIsolated,
+    approvalTimeoutSeconds: positiveInt(env.BRIDGE_APPROVAL_TIMEOUT_SECONDS, 60, "BRIDGE_APPROVAL_TIMEOUT_SECONDS"),
     supabaseUrl: supabaseUrl.origin,
     supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
     kiloServerUrl: kiloUrl.origin,
