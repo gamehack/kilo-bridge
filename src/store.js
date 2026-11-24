@@ -64,6 +64,12 @@ export function createStore(config, logger) {
       checked(await db.from("kilo_approvals").upsert(values,
         { onConflict: "kilo_request_id", ignoreDuplicates: true }), "upsertApproval");
     },
+    async approvalIntent(commandId, approvalId) {
+      const data = checked(await db.from("kilo_events").select("id")
+        .eq("command_id", commandId).eq("event_type", "approval.auto_intent")
+        .contains("payload", { approval_id: approvalId }).limit(1), "approvalIntent");
+      return Boolean(data?.length);
+    },
     async approvalForRequest(requestId) {
       return checked(await db.from("kilo_approvals").select("*").eq("kilo_request_id", requestId).maybeSingle(), "approvalForRequest");
     },
