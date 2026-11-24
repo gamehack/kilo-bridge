@@ -320,21 +320,24 @@ export class Bridge {
       return;
     }
 
+    let phase = "intent_audit";
     try {
       await this.store.event({ command_id: command.id, session_id: session.id,
         event_type: "approval.auto_intent", payload: { approval_id: approval.id,
           decision: policy.decision, reason: policy.reason, claim_id: claim.claimId } });
+      phase = "permission_reply";
       await this.kilo.replyPermission(session.directory, request.id, policy.decision);
+      phase = "approval_persist";
       await this.store.updateApproval(approval.id, session.id, {
         status: policy.decision === "reject" ? "rejected" : "approved",
         decision: policy.decision, resolved_at: now()
       });
+      phase = "decision_audit";
       await this.store.event({ command_id: command.id, session_id: session.id,
         event_type: "approval.auto_decision", payload: { approval_id: approval.id,
           decision: policy.decision, reason: policy.reason, claim_id: claim.claimId } });
     } catch (error) {
-      await this.markApprovalNeedsReconciliation(session, approval, claim, error, [],
-        error?.message === "event: audit unavailable" ? "decision_audit_failed" : "reply_or_persist_failed");
+      await this.markApprovalNeedsReconciliation(session, approval, claim, error, [], phase);
     }
   }
 
