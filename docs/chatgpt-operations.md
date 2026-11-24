@@ -74,3 +74,15 @@ Supported decisions: `once`, `always`, `reject`. Prefer `once` for ordinary use.
 ## 5. Recovery and idempotency
 
 Each distinct instruction gets a fresh UUID `idempotency_key`. If a SQL call times out, query by the *same* key before retrying. Do not resubmit commands in `running`, `awaiting_approval` or `needs_reconciliation` states. After a restart, the Bridge checks Kilo's actual session status and transcript; uncertain work requires manual inspection.
+
+## 6. Automatic approval (V2)
+
+Set `BRIDGE_APPROVAL_MODE=auto` and `BRIDGE_APPROVAL_TIMEOUT_SECONDS=60` in the private Bridge environment. Existing manual SQL commands still work. Known read-only diagnostics are approved once; sensitive paths and known protected operations are rejected. Other requests wait for manual approval until the deadline, then reject. Timeouts survive restarts through approval creation timestamps. Audit events include decision and reason, never permanent wildcard approvals.
+
+A trusted dispatcher may attach exact, task-scoped grants to the existing start_turn payload:
+
+```json
+{"text":"Inspect Paperclip and report status.","approval_grants":[{"permission":"bash","command":"docker compose -f /opt/paperclip/docker-compose.yml ps"},{"permission":"read","patterns":["opt/paperclip/README.md"]}]}
+```
+
+Grants are exact request matches, not prefixes or globs; they do not override protected-operation checks. Do not allow an agent to mint its own grants. `manual` preserves the legacy indefinite review flow; `full_auto` requires an explicitly isolated worker and immediately rejects ungranted actions, rather than blindly approving them. Do not enable it on the production host. Permission filters are not a sandbox: exact grants can still cause arbitrary effects, and the OS account and isolation are the real boundary. Review each grant, especially shell commands and writes. Do not send secrets to the free model. If the tool reply is uncertain or the model ends without a final answer, inspect the session before retrying.
