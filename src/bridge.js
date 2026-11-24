@@ -363,7 +363,19 @@ export class Bridge {
     const directory = session.directory;
     if (!directory) return;
     const command = await this.store.command(session.current_command_id);
-    if (!command || isTerminal(command.status)) return;
+    if (!command) return;
+    if (command.status === "needs_reconciliation" || session.status === "needs_reconciliation") {
+      if (command.status !== "needs_reconciliation") await this.store.updateCommand(command.id, {
+        status: "needs_reconciliation",
+        error: command.error || { name: "NeedsReconciliation", message: "Session requires manual reconciliation" },
+        finished_at: now(), lease_expires_at: null
+      });
+      if (session.status !== "needs_reconciliation") {
+        await this.store.updateSession(session.id, { status: "needs_reconciliation" });
+      }
+      return;
+    }
+    if (isTerminal(command.status)) return;
     const permissions = await this.kilo.pendingPermissions(directory);
     const pending = (Array.isArray(permissions) ? permissions : []).filter((p) => p.sessionID === session.kilo_session_id);
     if (pending.length) {
