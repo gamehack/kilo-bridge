@@ -178,8 +178,13 @@ export class Bridge {
     const claimed = await this.store.claimApproval(approval, claim);
     if (!claimed) {
       const latest = await this.store.approval(approvalId, session.id);
-      if (latest) await this.handleExistingApprovalClaim(session, latest, command.id, [command.id]);
-      throw new Error("Approval is already being resolved or requires reconciliation");
+      const resolutionState = latest
+        ? await this.handleExistingApprovalClaim(session, latest, command.id, [command.id])
+        : null;
+      if (resolutionState !== "reconciliation") {
+        await this.finish(command, "failed", { approval_id: approval.id, reason: "already_claimed" });
+      }
+      return;
     }
     command.dispatched = true;
     try {
@@ -206,7 +211,7 @@ export class Bridge {
   async handleExistingApprovalClaim(session, approval, fallbackCommandId, extraCommandIds = []) {
     const detail = approval.detail && typeof approval.detail === "object" ? approval.detail : {};
     const claimId = detail._bridge_resolution_claim_id;
-    if (!claimId) return false;
+    if (!claimId) return null;
     const claim = {
       claimId,
       kind: detail._bridge_resolution_kind || "auto",
@@ -222,24 +227,24 @@ export class Bridge {
           claim.resolverCommandId, approval.id, "approval." + claim.kind + "_decision"
         );
       } catch {}
-      if (audited) return true;
+      if (audited) return "complete";
       await this.markApprovalNeedsReconciliation(session, approval, claim,
         new Error("Final approval audit event is missing"), extraCommandIds, "final_audit_missing");
-      return true;
+      return "reconciliation";
     }
     if (approval.status === "pending") {
       const claimedAt = Date.parse(claim.claimedAt || "");
-      if (Number.isFinite(claimedAt) && Date.now() - claimedAt < 120000) return true;
+      if (Number.isFinite(claimedAt) && Date.now() - claimedAt < 120000) return "in_progress";
       await this.markApprovalNeedsReconciliation(session, approval, claim,
         new Error("Approval resolution claim is stale"), extraCommandIds, "stale_claim");
-      return true;
+      return "reconciliation";
     }
     if (approval.status === "orphaned") {
       await this.markApprovalNeedsReconciliation(session, approval, claim,
         new Error("Approval was orphaned while a resolution claim exists"), extraCommandIds, "orphaned_claim");
-      return true;
+      return "reconciliation";
     }
-    return false;
+    return null;
   }
 
   async markApprovalNeedsReconciliation(session, approval, claim, error, extraCommandIds = [], phase = "reply_or_audit") {
@@ -298,7 +303,8 @@ export class Bridge {
       await this.handleExistingApprovalClaim(session, approval, command.id);
       return;
     }
-    if (await this.handleExistingApprovalClaim(session, approval, command.id)) return;
+    const existingClaim = await this.handleExistingApprovalClaim(session, approval, command.id);
+    if (existingClaim) return;
 
     const grants = validateApprovalGrants(command.payload?.approval_grants);
     const policy = evaluateApproval(request, this.config, grants, approval.created_at);
