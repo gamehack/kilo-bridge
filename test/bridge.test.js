@@ -241,3 +241,15 @@ test("approval created before the task start is not auto-resolved", async () => 
   assert.equal(h.getReplyCount(), 0);
   assert.equal(h.getApproval().status, "pending");
 });
+
+test("reconciliation state is sticky and cannot be reset to awaiting approval", async () => {
+  const h = harness();
+  await h.bridge.startTurn({ id: commandID, session_id: sessionID }, { text: "Fix bug" });
+  h.setCommand({ status: "needs_reconciliation" });
+  h.setSession({ status: "needs_reconciliation" });
+  h.setPermissions([{ id: "per_sticky", sessionID: "ses_demo", permission: "bash" }]);
+  await h.bridge.reconcile(h.getSession());
+  assert.equal(h.getCommand().status, "needs_reconciliation");
+  assert.equal(h.getSession().status, "needs_reconciliation");
+  assert.equal(h.getReplyCount(), 0);
+});
