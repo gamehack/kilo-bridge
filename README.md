@@ -45,7 +45,7 @@ No dependency on `codex-bridge`, Slack, OpenClaw, a public listening port, or a 
 
 Supabase stores command metadata and final assistant text, not raw token deltas, complete transcripts, or all tool outputs. Kilo owns the local session history. `prompt_async` is fire-and-forget; a successful HTTP response means accepted, **not completed**.
 
-Pending permissions are surfaced as `awaiting_approval`; decisions must be explicit. If Kilo asks a question that this MVP cannot answer, the task is flagged `needs_reconciliation`. An ambiguous claim or network failure is never automatically resent. Only one Bridge instance should handle this queue in v0.1.
+Pending permissions are surfaced as `awaiting_approval` by default. On a dedicated trusted worker, set `BRIDGE_HOST_ID` to the registered host and `BRIDGE_AUTO_APPROVE=true` to automatically reply `always` to every live permission request associated with its current task. The host-scoped database RPC and columns must already exist. This deliberately grants all requested permissions; the OS account is the security boundary. Decisions are recorded in the approval table; manual mode remains the default. Questions are not automatically answered. An ambiguous reply is not replayed. If Kilo asks a question that this MVP cannot answer, the task is flagged `needs_reconciliation`. An ambiguous claim or network failure is never automatically resent. Only one Bridge instance should handle this queue in v0.1.
 
 ## Safety
 
