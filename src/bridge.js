@@ -172,6 +172,13 @@ export class Bridge {
     const grants = validateApprovalGrants(command.payload?.approval_grants);
     const policy = evaluateApproval(request, this.config, grants, approval.created_at);
     if (!policy.decision) return;
+    if (await this.store.approvalIntent(command.id, approval.id)) {
+      await this.store.updateCommand(command.id, { status: "needs_reconciliation",
+        error: { name: "ApprovalReplyUncertain", message: "Prior automatic reply intent remains unresolved" },
+        finished_at: now(), lease_expires_at: null });
+      await this.store.updateSession(session.id, { status: "needs_reconciliation" });
+      throw new Error("Prior automatic permission reply requires reconciliation");
+    }
     // Persist intent before the external side effect; do not silently replay
     // ambiguous permission replies following a crash or transport failure.
     await this.store.event({ command_id: command.id, session_id: session.id,
