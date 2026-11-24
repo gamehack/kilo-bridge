@@ -82,3 +82,28 @@ test("approval resolution claim uses atomic compare-and-set on pending row", asy
     globalThis.fetch = originalFetch;
   }
 });
+
+test("session and command reads and writes are scoped to the configured host", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, options = {}) => {
+    requests.push({ url: new URL(String(url)), options });
+    return Response.json({ id: "row-1" });
+  };
+  try {
+    const store = createStore(config, logger);
+    await store.session("session-1");
+    await store.command("command-1");
+    await store.updateSession("session-1", { status: "ready" });
+    await store.updateCommand("command-1", { status: "failed" });
+
+    const sessionReads = requests.filter((r) => r.url.pathname.endsWith("/kilo_sessions"));
+    assert.equal(sessionReads[0].url.searchParams.get("host_id"), "eq.silicon-valley-01");
+    assert.equal(sessionReads[1].url.searchParams.get("host_id"), "eq.silicon-valley-01");
+    const commandReads = requests.filter((r) => r.url.pathname.endsWith("/kilo_commands"));
+    assert.equal(commandReads[0].url.searchParams.get("target_host"), "eq.silicon-valley-01");
+    assert.equal(commandReads[1].url.searchParams.get("target_host"), "eq.silicon-valley-01");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
