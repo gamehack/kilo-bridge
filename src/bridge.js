@@ -86,7 +86,10 @@ export class Bridge {
   async execute(command) {
     try {
       const hostId = this.config.bridgeHostId || "silicon-valley-01";
-      if (command.target_host !== hostId) throw new Error("Command host mismatch");
+      if (command.target_host !== hostId) {
+        this.logger.error("command.host_mismatch", { command_id: command.id, expected_host: hostId });
+        return;
+      }
       const input = validateCommand(command, this.config);
       switch (command.command_type) {
         case "create_session": return await this.createSession(command, input);
