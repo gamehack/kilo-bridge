@@ -253,3 +253,39 @@ test("reconciliation state is sticky and cannot be reset to awaiting approval", 
   assert.equal(h.getSession().status, "needs_reconciliation");
   assert.equal(h.getReplyCount(), 0);
 });
+
+test("manual approval still uses a single-use claim and records its decision", async () => {
+  const h = harness();
+  await h.bridge.startTurn({ id: commandID, session_id: sessionID }, { text: "Fix bug" });
+  const request = { id: "per_manual", sessionID: "ses_demo", permission: "bash",
+    metadata: { command: "free -h" }, patterns: ["free -h"] };
+  h.setApproval({ id: "approval_manual", session_id: sessionID, command_id: commandID,
+    kilo_request_id: request.id, status: "pending", created_at: new Date().toISOString(), detail: request });
+  await h.bridge.decideApproval({
+    id: "decision_command", session_id: sessionID, target_host: "silicon-valley-01"
+  }, { approvalId: "approval_manual", decision: "once" });
+  assert.equal(h.getReplyCount(), 1);
+  assert.equal(h.getApproval().status, "approved");
+  assert.ok(h.calls.some((event) => event.event_type === "approval.manual_decision"));
+});
+
+test("approved row without its final audit event is reconciled without replay", async () => {
+  const h = harness({ approvalMode: "auto" });
+  h.setCommand({ payload: { text: "Inspect host", approval_grants: [] } });
+  await h.bridge.startTurn(h.getCommand(), { text: "Inspect host" });
+  const request = { id: "per_missing_audit", sessionID: "ses_demo", permission: "bash",
+    metadata: { command: "free -h" }, patterns: ["free -h"] };
+  h.setApproval({ id: "approval_missing_audit", session_id: sessionID, command_id: commandID,
+    kilo_request_id: request.id, status: "approved",
+    created_at: new Date(Date.now() + 5).toISOString(),
+    detail: { ...request, _bridge_resolution_claim_id: "claim-before-crash",
+      _bridge_resolution_kind: "auto", _bridge_resolution_decision: "once",
+      _bridge_resolution_reason: "read_only_allowlist",
+      _bridge_resolution_claimed_at: new Date().toISOString(),
+      _bridge_resolution_command_id: commandID }
+  });
+  await h.bridge.resolveAutomaticApproval(h.getSession(), h.getCommand(), request);
+  assert.equal(h.getReplyCount(), 0);
+  assert.equal(h.getCommand().status, "needs_reconciliation");
+  assert.equal(h.getSession().status, "needs_reconciliation");
+});
