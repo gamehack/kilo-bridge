@@ -64,6 +64,9 @@ export function createStore(config, logger) {
       checked(await db.from("kilo_approvals").upsert(values,
         { onConflict: "kilo_request_id", ignoreDuplicates: true }), "upsertApproval");
     },
+    async approvalForRequest(requestId) {
+      return checked(await db.from("kilo_approvals").select("*").eq("kilo_request_id", requestId).maybeSingle(), "approvalForRequest");
+    },
     async approval(id) {
       return checked(await db.from("kilo_approvals").select("*").eq("id", id).maybeSingle(), "approval");
     },
