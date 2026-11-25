@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { errorObject, validateCommand, assertHostDirectory } from "./commands.js";
 
 const now = () => new Date().toISOString();
@@ -150,21 +151,90 @@ export class Bridge {
     await this.finish(command, "succeeded", { interrupt_accepted: true });
   }
 
+  async approvalUncertain(session, command, approval, error) {
+    await this.store.updateCommand(command.id, { status: "needs_reconciliation",
+      error: { name: "ApprovalReplyUncertain", message: "Approval reply or audit persistence uncertain" },
+      finished_at: now(), lease_expires_at: null });
+    await this.store.updateSession(session.id, { status: "needs_reconciliation" });
+    await this.store.event({ command_id: command.id, session_id: session.id,
+      event_type: "approval.needs_reconciliation", payload: { approval_id: approval?.id || null } });
+    this.logger.warn("approval.needs_reconciliation", { approval_id: approval?.id, error: errorObject(error) });
+  }
+
+  // Both resolvers share the same durable claim. A claimed request is never blindly replayed.
+  async resolveLiveApproval(session, command, approval, decision, source) {
+    const currentSession = await this.store.session(session.id);
+    const currentCommand = await this.store.command(command.id);
+    const host = this.config.bridgeHostId;
+    if (!currentSession || !currentCommand || currentSession.current_command_id !== command.id ||
+        currentCommand.session_id !== session.id ||
+        !["running", "awaiting_approval"].includes(currentSession.status) ||
+        !["running", "awaiting_approval"].includes(currentCommand.status) ||
+        (host && (currentSession.host_id !== host || currentCommand.target_host !== host))) return "inactive";
+    if (!approval || approval.session_id !== session.id || approval.command_id !== command.id) {
+      await this.approvalUncertain(session, command, approval, new Error("Approval identity mismatch"));
+      return "uncertain";
+    }
+    if (approval.status !== "pending") return "resolved";
+    const live = await this.kilo.pendingPermissions(assertHostDirectory(currentSession.directory, this.config));
+    if (!Array.isArray(live)) throw new Error("Invalid permission list");
+    if (!live.some(p => p.id === approval.kilo_request_id && p.sessionID === currentSession.kilo_session_id)) {
+      // An earlier always reply may have resolved other matching requests.
+      await this.store.orphanMissingApprovals(session.id, command.id,
+        live.filter(p => p.sessionID === currentSession.kilo_session_id).map(p => p.id));
+      return "gone";
+    }
+    const existing = approval.detail?._bridge_resolution;
+    if (existing) {
+      if (!existing.claimedAt || Date.now() - Date.parse(existing.claimedAt) >= 120000) {
+        await this.approvalUncertain(session, command, approval, new Error("Stale approval claim"));
+        return "uncertain";
+      }
+      return "claimed";
+    }
+    const claim = { id: randomUUID(), source, decision, claimedAt: now() };
+    if (!await this.store.claimApproval(approval, claim)) return "claimed";
+    try {
+      await this.store.event({ command_id: command.id, session_id: session.id,
+        event_type: "approval." + source + "_intent", payload: { approval_id: approval.id, decision, claim_id: claim.id } });
+      try {
+        const reply = await this.kilo.replyPermission(assertHostDirectory(currentSession.directory, this.config), approval.kilo_request_id, decision);
+        if (reply === false) throw new Error("Kilo did not accept permission reply");
+      } catch (error) {
+        if (error.status !== 404) throw error;
+        const remaining = await this.kilo.pendingPermissions(assertHostDirectory(currentSession.directory, this.config));
+        if (!Array.isArray(remaining) || remaining.some(p => p.id === approval.kilo_request_id && p.sessionID === currentSession.kilo_session_id)) throw error;
+        await this.store.orphanMissingApprovals(session.id, command.id,
+          remaining.filter(p => p.sessionID === currentSession.kilo_session_id).map(p => p.id));
+        await this.store.event({ command_id: command.id, session_id: session.id,
+          event_type: "approval.request_gone", payload: { approval_id: approval.id, claim_id: claim.id } });
+        return "gone";
+      }
+      await this.store.updateApproval(approval.id, { status: decision === "reject" ? "rejected" : "approved",
+        decision, resolved_at: now() });
+      await this.store.event({ command_id: command.id, session_id: session.id,
+        event_type: "approval." + source + "_decision", payload: { approval_id: approval.id, decision, claim_id: claim.id } });
+      return "resolved";
+    } catch (error) {
+      await this.approvalUncertain(session, command, approval, error);
+      return "uncertain";
+    }
+  }
+
   async decideApproval(command, { approvalId, decision }) {
     const approval = await this.store.approval(approvalId);
     if (!approval || approval.session_id !== command.session_id || approval.status !== "pending") {
       throw new Error("Approval is not pending in this session");
     }
     const session = await this.store.session(approval.session_id);
-    if (!session) throw new Error("Approval session does not belong to this host");
-    command.dispatched = true;
-    const directory = assertHostDirectory(session.directory, this.config);
-    await this.kilo.replyPermission(directory, approval.kilo_request_id, decision);
-    await this.store.updateApproval(approval.id, { status: decision === "reject" ? "rejected" : "approved",
-      decision, resolved_at: now() });
-    await this.store.updateSession(session.id, { status: "running" });
-    if (session.current_command_id) await this.store.updateCommand(session.current_command_id, { status: "running" });
-    await this.finish(command, "succeeded", { approval_id: approval.id, decision });
+    if (!session || !session.current_command_id || session.current_command_id !== approval.command_id) {
+      throw new Error("Approval is not attached to the current turn");
+    }
+    const parent = await this.store.command(session.current_command_id);
+    if (!parent) throw new Error("Approval parent command is missing");
+    const outcome = await this.resolveLiveApproval(session, parent, approval, decision, "manual");
+    await this.finish(command, outcome === "resolved" ? "succeeded" :
+      outcome === "uncertain" ? "needs_reconciliation" : "failed", { approval_id: approval.id, decision, outcome });
   }
 
   async health(command) {
@@ -184,6 +254,9 @@ export class Bridge {
     if (!session.kilo_session_id || !session.current_command_id) return;
     const command = await this.store.command(session.current_command_id);
     if (!command || isTerminal(command.status)) return;
+    // Never revive an uncertain or detached turn by approving its requests.
+    if (!["running", "awaiting_approval"].includes(session.status) ||
+        !["running", "awaiting_approval"].includes(command.status) || command.session_id !== session.id) return;
     let directory;
     try {
       directory = assertHostDirectory(session.directory, this.config);
@@ -195,8 +268,13 @@ export class Bridge {
         event_type: "turn.directory_invalid", payload: { name: error?.name || "Error" } });
       return;
     }
+    if (this.config.bridgeHostId && (session.host_id !== this.config.bridgeHostId || command.target_host !== this.config.bridgeHostId)) return;
     const permissions = await this.kilo.pendingPermissions(directory);
-    const pending = (Array.isArray(permissions) ? permissions : []).filter((p) => p.sessionID === session.kilo_session_id);
+    if (!Array.isArray(permissions)) throw new Error("Invalid permission list");
+    const pending = permissions.filter((p) => p.sessionID === session.kilo_session_id && typeof p.id === "string" && p.id);
+    if (this.config.autoApprove) {
+      await this.store.orphanMissingApprovals(session.id, command.id, pending.map(p => p.id));
+    }
     if (pending.length) {
       for (const request of pending) {
         await this.store.upsertApproval({ session_id: session.id, command_id: command.id,
@@ -207,6 +285,13 @@ export class Bridge {
         await this.store.updateCommand(command.id, { status: "awaiting_approval" });
         await this.store.event({ command_id: command.id, session_id: session.id,
           event_type: "approval.requested", payload: { count: pending.length } });
+      }
+      if (this.config.autoApprove) {
+        for (const request of pending) {
+          const approval = await this.store.approvalForRequest(request.id, session.id, command.id);
+          const outcome = await this.resolveLiveApproval(session, command, approval, "always", "auto");
+          if (outcome === "uncertain" || outcome === "inactive") break;
+        }
       }
       return;
     }
@@ -234,7 +319,7 @@ export class Bridge {
     }
     const messages = await this.kilo.messages(directory, session.kilo_session_id);
     const assistant = Array.isArray(messages) ? lastAssistant(messages, command) : null;
-    if (!assistant || !assistant.info?.time?.completed) return; // Avoid declaring success on an empty idle observation.
+    if (!assistant || !assistant.info?.time?.completed || assistant.info.finish === "tool-calls") return; // Avoid declaring success on an empty idle observation.
     const failed = Boolean(assistant.info.error);
     const result = { ...command.result, final_message: finalText(assistant),
       assistant_message_id: assistant.info.id, finish: assistant.info.finish || null };

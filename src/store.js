@@ -69,6 +69,28 @@ export function createStore(config, logger) {
     async approval(id) {
       return checked(await db.from("kilo_approvals").select("*").eq("id", id).maybeSingle(), "approval");
     },
+    async approvalForRequest(requestId, sessionId, commandId) {
+      return checked(await db.from("kilo_approvals").select("*").eq("kilo_request_id", requestId)
+        .eq("session_id", sessionId).eq("command_id", commandId).maybeSingle(), "approvalForRequest");
+    },
+    async claimApproval(approval, claim) {
+      const detail = { ...approval.detail, _bridge_resolution: claim };
+      const rows = checked(await db.from("kilo_approvals").update({ detail })
+        .eq("id", approval.id).eq("session_id", approval.session_id).eq("command_id", approval.command_id)
+        .eq("status", "pending").filter("detail->>_bridge_resolution", "is", "null")
+        .select("id"), "claimApproval") || [];
+      return rows.length === 1;
+    },
+    async orphanMissingApprovals(sessionId, commandId, liveIds) {
+      const rows = checked(await db.from("kilo_approvals").select("id,kilo_request_id")
+        .eq("session_id", sessionId).eq("command_id", commandId).eq("status", "pending"), "pendingApprovals") || [];
+      for (const row of rows) {
+        if (!liveIds.includes(row.kilo_request_id)) {
+          checked(await db.from("kilo_approvals").update({ status: "orphaned", resolved_at: new Date().toISOString() })
+            .eq("id", row.id).eq("status", "pending"), "orphanMissingApproval");
+        }
+      }
+    },
     async updateApproval(id, values) {
       return checked(await db.from("kilo_approvals").update(values).eq("id", id).select("*").single(), "updateApproval");
     }
