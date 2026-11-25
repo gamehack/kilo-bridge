@@ -38,8 +38,7 @@ export function renderDaemonPlists({ user, group, home, repo, nodeBin, kiloBin, 
     PATH:[path.dirname(nodeBin),path.dirname(kiloBin),"/usr/local/bin","/usr/bin","/bin","/usr/sbin","/sbin"].join(":"),
     XDG_CONFIG_HOME:path.join(home,".config"),
     XDG_DATA_HOME:path.join(home,".local/share"),
-    XDG_CACHE_HOME:path.join(home,".cache"),
-    BRIDGE_AUTO_APPROVE:"true"
+    XDG_CACHE_HOME:path.join(home,".cache")
   };
   const base = {
     UserName:user, GroupName:group, RunAtLoad:true, KeepAlive:true,
@@ -55,6 +54,7 @@ export function renderDaemonPlists({ user, group, home, repo, nodeBin, kiloBin, 
     }),
     [LABEL_BRIDGE]:plist({
       Label:LABEL_BRIDGE, ...base,
+      EnvironmentVariables:{ ...env, BRIDGE_AUTO_APPROVE:"true" },
       ProgramArguments:[nodeBin,path.join(repo,"scripts/macbook-worker.js"),"service",BROKER_URL],
       StandardOutPath:path.join(logDir,"kilo-bridge.stdout.log"),
       StandardErrorPath:path.join(logDir,"kilo-bridge.stderr.log")
