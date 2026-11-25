@@ -38,7 +38,8 @@ export function renderDaemonPlists({ user, group, home, repo, nodeBin, kiloBin, 
     PATH:[path.dirname(nodeBin),path.dirname(kiloBin),"/usr/local/bin","/usr/bin","/bin","/usr/sbin","/sbin"].join(":"),
     XDG_CONFIG_HOME:path.join(home,".config"),
     XDG_DATA_HOME:path.join(home,".local/share"),
-    XDG_CACHE_HOME:path.join(home,".cache")
+    XDG_CACHE_HOME:path.join(home,".cache"),
+    BRIDGE_AUTO_APPROVE:"true"
   };
   const base = {
     UserName:user, GroupName:group, RunAtLoad:true, KeepAlive:true,
