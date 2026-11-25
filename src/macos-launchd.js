@@ -54,6 +54,7 @@ export function renderDaemonPlists({ user, group, home, repo, nodeBin, kiloBin, 
     }),
     [LABEL_BRIDGE]:plist({
       Label:LABEL_BRIDGE, ...base,
+      EnvironmentVariables:{ ...env, BRIDGE_AUTO_APPROVE:"true" },
       ProgramArguments:[nodeBin,path.join(repo,"scripts/macbook-worker.js"),"service",BROKER_URL],
       StandardOutPath:path.join(logDir,"kilo-bridge.stdout.log"),
       StandardErrorPath:path.join(logDir,"kilo-bridge.stderr.log")
