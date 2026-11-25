@@ -44,7 +44,11 @@ export function loadConfig(env = process.env) {
   const bridgeHostId = env.BRIDGE_HOST_ID || "silicon-valley-01";
   if (!/^[a-z][a-z0-9_-]{1,63}$/.test(bridgeHostId)) throw new Error("Invalid BRIDGE_HOST_ID");
 
+  const autoApprove = env.BRIDGE_AUTO_APPROVE ?? "false";
+  if (!["true", "false"].includes(autoApprove)) throw new Error("BRIDGE_AUTO_APPROVE must be true or false");
+  if (autoApprove === "true" && !env.BRIDGE_HOST_ID) throw new Error("Auto approval requires BRIDGE_HOST_ID");
   return {
+    autoApprove: autoApprove === "true",
     bridgeHostId,
     brokerUrl: brokerUrl?.href || null,
     brokerToken: env.KILO_BROKER_TOKEN || null,

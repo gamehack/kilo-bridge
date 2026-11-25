@@ -55,6 +55,15 @@ async function ownApproval(id: unknown) {
   return approval && await ownSession(approval.session_id) ? approval : null;
 }
 
+// Additional approval operations are scoped to this host's current active turn.
+async function activeApprovalContext(sessionId: unknown, commandId: unknown) {
+  const s = await ownSession(sessionId);
+  const c = await ownCommand(commandId);
+  requireValid(s && c && s.current_command_id === c.id && c.session_id === s.id &&
+    ["running", "awaiting_approval"].includes(s.status) &&
+    ["running", "awaiting_approval"].includes(c.status), "approval is not in current host turn");
+  return { s, c };
+}
 async function dispatch(action: string, args: Record<string, unknown>) {
   switch (action) {
     case "claim": {
@@ -122,6 +131,44 @@ async function dispatch(action: string, args: Record<string, unknown>) {
         session_id: v.session_id, command_id: v.command_id || null,
         kilo_request_id: v.kilo_request_id, status: "pending", detail: v.detail || {}
       }, { onConflict: "kilo_request_id", ignoreDuplicates: true }));
+    }
+    case "approvalForRequest": {
+      const { s, c } = await activeApprovalContext(args.sessionId, args.commandId);
+      requireValid(typeof args.requestId === "string" && args.requestId.length > 0 && args.requestId.length <= 256, "invalid request ID");
+      return checked(await database.from("kilo_approvals").select("*")
+        .eq("kilo_request_id", args.requestId).eq("session_id", s.id).eq("command_id", c.id).maybeSingle());
+    }
+    case "claimApproval": {
+      const { s, c } = await activeApprovalContext(args.sessionId, args.commandId);
+      const a = await ownApproval(args.id);
+      requireValid(a && a.session_id === s.id && a.command_id === c.id, "approval identity mismatch");
+      if (a.status !== "pending") return false;
+      const claim = args.claim as Record<string, unknown>;
+      requireValid(claim && typeof claim.id === "string" && /^[0-9a-f-]{36}$/i.test(claim.id) &&
+        ["auto", "manual"].includes(String(claim.source)) &&
+        ["once", "always", "reject"].includes(String(claim.decision)) &&
+        (claim.source !== "auto" || claim.decision === "always") &&
+        typeof claim.claimedAt === "string" && Number.isFinite(Date.parse(claim.claimedAt)), "invalid approval claim");
+      const detail = { ...a.detail, _bridge_resolution: { id: claim.id, source: claim.source,
+        decision: claim.decision, claimedAt: new Date().toISOString() } };
+      const rows = checked(await database.from("kilo_approvals").update({ detail })
+        .eq("id", a.id).eq("session_id", s.id).eq("command_id", c.id).eq("status", "pending")
+        .filter("detail->>_bridge_resolution", "is", "null").select("id")) || [];
+      return rows.length === 1;
+    }
+    case "orphanMissingApprovals": {
+      const { s, c } = await activeApprovalContext(args.sessionId, args.commandId);
+      const liveIds = args.liveIds;
+      requireValid(Array.isArray(liveIds) && liveIds.every(id => typeof id === "string"), "invalid live request IDs");
+      const rows = checked(await database.from("kilo_approvals").select("id,kilo_request_id")
+        .eq("session_id", s.id).eq("command_id", c.id).eq("status", "pending")) || [];
+      for (const row of rows) {
+        if (!liveIds.includes(row.kilo_request_id)) {
+          checked(await database.from("kilo_approvals").update({ status: "orphaned", resolved_at: new Date().toISOString() })
+            .eq("id", row.id).eq("session_id", s.id).eq("command_id", c.id).eq("status", "pending"));
+        }
+      }
+      return null;
     }
     case "approval": return ownApproval(args.id);
     case "updateApproval": {

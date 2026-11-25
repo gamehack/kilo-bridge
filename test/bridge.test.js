@@ -6,9 +6,9 @@ const sessionID = "59929579-ac90-48c1-929c-19d536268f7f";
 const commandID = "7324cb59-f558-4962-b112-7dfe1ce2b051";
 
 function harness() {
-  let session = { id: sessionID, title: "Demo", workspace_key: "demo", kilo_session_id: "ses_demo",
+  let session = { id: sessionID, host_id: "macbook-01", title: "Demo", workspace_key: "demo", kilo_session_id: "ses_demo",
     directory: process.cwd(), status: "ready", current_command_id: null };
-  let command = { id: commandID, session_id: sessionID, status: "claimed", payload: { text: "Fix bug" }, result: {} };
+  let command = { id: commandID, target_host: "macbook-01", session_id: sessionID, status: "claimed", payload: { text: "Fix bug" }, result: {} };
   let messages = [];
   let status = { ses_demo: { type: "busy" } };
   let permissions = [];

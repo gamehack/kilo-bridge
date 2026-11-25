@@ -32,6 +32,9 @@ export function createBrokerStore(config) {
     event(values) { return invoke("event", { values }); },
     upsertApproval(values) { return invoke("upsertApproval", { values }); },
     approval(id) { return invoke("approval", { id }); },
+    approvalForRequest(requestId, sessionId, commandId) { return invoke("approvalForRequest", { requestId, sessionId, commandId }); },
+    claimApproval(approval, claim) { return invoke("claimApproval", { id: approval.id, sessionId: approval.session_id, commandId: approval.command_id, claim }); },
+    orphanMissingApprovals(sessionId, commandId, liveIds) { return invoke("orphanMissingApprovals", { sessionId, commandId, liveIds }); },
     updateApproval(id, values) { return invoke("updateApproval", { id, values }); }
   };
 }

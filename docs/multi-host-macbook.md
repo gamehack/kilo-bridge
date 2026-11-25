@@ -248,3 +248,8 @@ secrets, or production data. Approval decisions stay scoped to \`once\` or
   `Service Recommended`, 1055 cycles.
 - **Not yet verified:** cold reboot before GUI login, offline/wake networking
   recovery, and multiple-day stability. Do not claim permanent 24/7 uptime.
+
+
+## Opt-in live automatic approvals
+
+Deploy the updated host-scoped broker before upgrading MB1. Set BRIDGE_AUTO_APPROVE=true in the existing Bridge LaunchDaemon environment, keep the worker's macbook-01 routing and broker token, and do not install a service-role key locally. Default remains manual. For the active turn only, the worker uses the broker's durable claim operation and replies always; vanished requests are orphaned, uncertain replies are not replayed. Native Kilo permission=allow is configured separately for the service user. Keep the original checkout and configuration recoverable, and verify an independent local restart/rollback route before restarting the bridge.
