@@ -25,6 +25,8 @@ test("launchd generates two independent boot jobs with restart", () => {
   assert.match(plists[LABEL_KILO], /<string>127\.0\.0\.1<\/string>/);
   assert.match(plists[LABEL_BRIDGE], /<string>service<\/string>/);
   assert.ok(plists[LABEL_BRIDGE].includes(BROKER_URL));
+  assert.match(plists[LABEL_BRIDGE], /<key>BRIDGE_AUTO_APPROVE<\/key><string>true<\/string>/);
+  assert.doesNotMatch(plists[LABEL_KILO], /BRIDGE_AUTO_APPROVE/);
 });
 
 test("launchd renderer rejects alternate Mac users and target directories", () => {
